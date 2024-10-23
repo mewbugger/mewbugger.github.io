@@ -121,7 +121,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">9</span>
+          <span class="site-state-item-count">10</span>
           <span class="site-state-item-name">posts</span>
         </a>
       </div>
@@ -149,6 +149,125 @@
     </div>
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://example.com/2024/10/24/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B29%E3%80%91%E6%99%AE%E9%80%9A%E7%B4%A2%E5%BC%95%E5%92%8C%E5%94%AF%E4%B8%80%E7%B4%A2%E5%BC%95%E6%80%8E%E4%B9%88%E9%80%89%E6%8B%A9/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="Barry Crude">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Crude 's Blog">
+      <meta itemprop="description" content="Crude 's Blog">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="undefined | Crude 's Blog">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2024/10/24/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B29%E3%80%91%E6%99%AE%E9%80%9A%E7%B4%A2%E5%BC%95%E5%92%8C%E5%94%AF%E4%B8%80%E7%B4%A2%E5%BC%95%E6%80%8E%E4%B9%88%E9%80%89%E6%8B%A9/" class="post-title-link" itemprop="url">【MySQL实战45讲9】普通索引和唯一索引怎么选择</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+      
+
+      <time title="Created: 2024-10-24 00:40:41 / Modified: 01:11:36" itemprop="dateCreated datePublished" datetime="2024-10-24T00:40:41+08:00">2024-10-24</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E5%AD%A6%E4%B9%A0/" itemprop="url" rel="index"><span itemprop="name">学习</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h2 id="前言"><a href="#前言" class="headerlink" title="前言"></a>前言</h2><p>今天的话题是，在不同的业务场景下，应该选择普通索引，还是唯一索引</p>
+<p>假设现在维护一个市民系统，每个人都有一个唯一的身份证号，而且业务代码已经保证了写入两个重复的身份证号。如果市民系统需要按照身份证号查姓名，就会执行类似下面的sql语句;</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">select</span> name <span class="keyword">from</span> CUser <span class="keyword">where</span> id_card <span class="operator">=</span> <span class="string">&#x27;xxxxxxxyyyyyyzzzzz&#x27;</span>;</span><br></pre></td></tr></table></figure>
+
+<p>这种情况下，会考虑在<code>id_card</code>字段上建索引。</p>
+<p>由于身份证号字段比较大，不建议作为主键，那么现在就有了两个选择，要么给<code>id_card</code>字段创建唯一索引，要么创建一个普通索引。如果业务代码已经保证不会写入重复的身份证号，那么这两个选择逻辑上都是正确的。</p>
+<p>那么从性能上考虑，应该选择唯一索引还是普通索引呢，对应的依据是什么呢？</p>
+<p>以下图为例，假设字段k上的值都不重复</p>
+<p><img src="/2024/10/24/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B29%E3%80%91%E6%99%AE%E9%80%9A%E7%B4%A2%E5%BC%95%E5%92%8C%E5%94%AF%E4%B8%80%E7%B4%A2%E5%BC%95%E6%80%8E%E4%B9%88%E9%80%89%E6%8B%A9/InnoDB%E7%B4%A2%E5%BC%95%E7%BB%84%E7%BB%87%E7%BB%93%E6%9E%84.jpg" alt="InnoDB索引组织结构"></p>
+<h2 id="查询过程"><a href="#查询过程" class="headerlink" title="查询过程"></a>查询过程</h2><p>假设，执行查询的语句是<code>select id from T where k=5</code>。这个查询在索引树上查找的过程，先是通过B+树从树根开始，按层搜索到叶子节点，也就是图中右下角的这个数据页，然后可以认为数据页内部通过二分法来定位记录。</p>
+<ul>
+<li>对于普通索引来说，查找到满足条件的第一个记录（5,500）后，需要查找下一个记录，知道碰到第一个不满足k&#x3D;5条件的记录</li>
+<li>对于唯一索引来说，由于索引定义了唯一性，查找到第一个满足条件的记录后，就会停止继续检索。</li>
+</ul>
+<p>这样不同的性能差距其实是微乎其微的。因为，<strong>InnoDB的数据是按数据页为单位来读写的</strong>，也就是说，当需要读一条记录的时候，并不是将这个记录本身从磁盘读出来，而是以页为单位，将其整体读入内存。在<code>InnoDB</code>中，每个数据页的大小默认是16KB。</p>
+<p>因为引擎是按页读写的，所以说，当找到k&#x3D;5的记录的时候，它所在的数据页就都在内存里，那么对于普通索引来说，要多做的那一次“查找和判断下一条记录”的操作，就只需要一次指针寻找和一次计算。</p>
+<p>当然，对于k&#x3D;5是这个数据页的最后一条记录，那么要读取下一条记录，必须读取下个数据页，操作会复杂，但是这种是极端情况，在<strong>计算平均性能差异</strong>的时候，这个操作成本对CPU来说可以忽略不计。</p>
+<h2 id="更新过程"><a href="#更新过程" class="headerlink" title="更新过程"></a>更新过程</h2><p>为了说明普通索引和唯一索引对于更新语句的影响，需要先介绍一下<code>change buffer</code>。</p>
+<p>当需要更新一个数据页时，如果数据页在内存中就直接更新，而如果这个数据页还<strong>没有在内存中</strong>的话，在不影响数据一致性的前提下，<code>InnoDB</code> 会将这些更新操作缓存在 <code>change buffer</code> 中，<strong>这样就不需要从磁盘中读入这个数据页了</strong>。在下次查询需要访问这个数据页的时候，将数据页读入内存，然后执行 <code>change buffer</code> 中与这个页有关的操作。通过这种方式就能保证这个数据逻辑的正确性。</p>
+<p>需要说明的是，虽然名字叫作 <code>change buffer</code>，实际上它是可以持久化的数据。也就是说，<code>change buffer</code> 在内存中有拷贝，也会被写入到磁盘上。</p>
+<p>将 <code>change buffer</code> 中的操作应用到原数据页，得到最新结果的过程称为 <code>merge</code>。除了访问这个数据页会触发 <code>merge</code> 外，系统有后台线程会定期 <code>merge</code>。在数据库正常关闭（shutdown）的过程中，也会执行 <code>merge</code> 操作。</p>
+<p>那么，<strong>什么条件下可以使用change buffer呢？</strong></p>
+<p>对于唯一索引来说，所有的更新操作都要先判断这个操作是否违反唯一性约束。比如，要插入 (4,400) 这个记录，就要先判断现在表中是否已经存在 k&#x3D;4 的记录，而这必须要将数据页读入内存才能判断。如果都已经读入到内存了，那直接更新内存会更快，就没必要使用 change buffer 了。</p>
+<p>因此，<strong>唯一索引的更新就不能使用 change buffer，实际上也只有普通索引可以使用。</strong></p>
+<p>现在，已经理解了 change buffer 的机制，那么再来看看如果要在这张表中插入一个新记录 (4,400) 的话，InnoDB 的处理流程是怎样的。</p>
+<p>第一种情况是，这个记录要更新的目标页在内存中。这时，InnoDB 的处理流程如下：</p>
+<ul>
+<li>对于唯一索引来说，找到 3 和 5 之间的位置，判断到没有冲突，插入这个值，语句执行结束；</li>
+<li>对于普通索引来说，找到 3 和 5 之间的位置，插入这个值，语句执行结束。</li>
+</ul>
+<p>这样，普通索引和唯一索引对更新语句性能影响的差别不大。</p>
+<p>但是，第二种情况是，这个记录要<strong>更新的目标也不在内存中</strong>，这时，InnoDB的处理流程如下：</p>
+<ul>
+<li>对于<strong>唯一索引</strong>来说，需要<strong>将数据页读入内存</strong>，判断到没有冲突，插入这个值，语句执行结束；</li>
+<li>对于<strong>普通索引</strong>来说，则是<strong>将更新记录在 change buffer</strong>，语句执行就结束了。</li>
+</ul>
+<p>将数据从磁盘读入内存涉及随机 IO 的访问，是数据库里面成本最高的操作之一。change buffer 因为减少了随机磁盘访问，所以对更新性能的提升是会很明显的。</p>
+<h2 id="change-buffer的使用场景"><a href="#change-buffer的使用场景" class="headerlink" title="change buffer的使用场景"></a>change buffer的使用场景</h2><p>对于<strong>写多读少的业务</strong>来说，页面在写完以后马上被访问到的概率比较小，此时change buffer的使用效果最好。这种<strong>业务模型常见的就是账单类、日志类的系统</strong>。</p>
+<h2 id="索引选择和实践"><a href="#索引选择和实践" class="headerlink" title="索引选择和实践"></a>索引选择和实践</h2><p>普通索引和唯一索引应该怎么选择。其实，这两类索引在查询能力上是没差别的，主要考虑的是对更新性能的影响。所以，<strong>建议尽量选择普通索引</strong>。</p>
+<p>如果所有的更新后面，都马上伴随着对这个记录的查询，那么应该关闭 change buffer。而在其他情况下，change buffer 都能提升更新性能。</p>
+<p>在实际使用中，会发现，普通索引和 change buffer 的配合使用，对于数据量大的表的更新优化还是很明显的。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
