@@ -186,9 +186,15 @@
         <i class="far fa-calendar"></i>
       </span>
       <span class="post-meta-item-text">Posted on</span>
-      
 
-      <time title="Created: 2024-10-24 00:40:41 / Modified: 01:11:36" itemprop="dateCreated datePublished" datetime="2024-10-24T00:40:41+08:00">2024-10-24</time>
+      <time title="Created: 2024-10-24 00:40:41" itemprop="dateCreated datePublished" datetime="2024-10-24T00:40:41+08:00">2024-10-24</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">Edited on</span>
+      <time title="Modified: 2024-11-03 17:11:13" itemprop="dateModified" datetime="2024-11-03T17:11:13+08:00">2024-11-03</time>
     </span>
     <span class="post-meta-item">
       <span class="post-meta-item-icon">
@@ -211,47 +217,14 @@
     
     <div class="post-body" itemprop="articleBody">
           <h2 id="前言"><a href="#前言" class="headerlink" title="前言"></a>前言</h2><p>今天的话题是，在不同的业务场景下，应该选择普通索引，还是唯一索引</p>
-<p>假设现在维护一个市民系统，每个人都有一个唯一的身份证号，而且业务代码已经保证了写入两个重复的身份证号。如果市民系统需要按照身份证号查姓名，就会执行类似下面的sql语句;</p>
-<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">select</span> name <span class="keyword">from</span> CUser <span class="keyword">where</span> id_card <span class="operator">=</span> <span class="string">&#x27;xxxxxxxyyyyyyzzzzz&#x27;</span>;</span><br></pre></td></tr></table></figure>
-
-<p>这种情况下，会考虑在<code>id_card</code>字段上建索引。</p>
-<p>由于身份证号字段比较大，不建议作为主键，那么现在就有了两个选择，要么给<code>id_card</code>字段创建唯一索引，要么创建一个普通索引。如果业务代码已经保证不会写入重复的身份证号，那么这两个选择逻辑上都是正确的。</p>
-<p>那么从性能上考虑，应该选择唯一索引还是普通索引呢，对应的依据是什么呢？</p>
-<p>以下图为例，假设字段k上的值都不重复</p>
-<p><img src="/2024/10/24/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B29%E3%80%91%E6%99%AE%E9%80%9A%E7%B4%A2%E5%BC%95%E5%92%8C%E5%94%AF%E4%B8%80%E7%B4%A2%E5%BC%95%E6%80%8E%E4%B9%88%E9%80%89%E6%8B%A9/InnoDB%E7%B4%A2%E5%BC%95%E7%BB%84%E7%BB%87%E7%BB%93%E6%9E%84.jpg" alt="InnoDB索引组织结构"></p>
-<h2 id="查询过程"><a href="#查询过程" class="headerlink" title="查询过程"></a>查询过程</h2><p>假设，执行查询的语句是<code>select id from T where k=5</code>。这个查询在索引树上查找的过程，先是通过B+树从树根开始，按层搜索到叶子节点，也就是图中右下角的这个数据页，然后可以认为数据页内部通过二分法来定位记录。</p>
-<ul>
-<li>对于普通索引来说，查找到满足条件的第一个记录（5,500）后，需要查找下一个记录，知道碰到第一个不满足k&#x3D;5条件的记录</li>
-<li>对于唯一索引来说，由于索引定义了唯一性，查找到第一个满足条件的记录后，就会停止继续检索。</li>
-</ul>
-<p>这样不同的性能差距其实是微乎其微的。因为，<strong>InnoDB的数据是按数据页为单位来读写的</strong>，也就是说，当需要读一条记录的时候，并不是将这个记录本身从磁盘读出来，而是以页为单位，将其整体读入内存。在<code>InnoDB</code>中，每个数据页的大小默认是16KB。</p>
-<p>因为引擎是按页读写的，所以说，当找到k&#x3D;5的记录的时候，它所在的数据页就都在内存里，那么对于普通索引来说，要多做的那一次“查找和判断下一条记录”的操作，就只需要一次指针寻找和一次计算。</p>
-<p>当然，对于k&#x3D;5是这个数据页的最后一条记录，那么要读取下一条记录，必须读取下个数据页，操作会复杂，但是这种是极端情况，在<strong>计算平均性能差异</strong>的时候，这个操作成本对CPU来说可以忽略不计。</p>
-<h2 id="更新过程"><a href="#更新过程" class="headerlink" title="更新过程"></a>更新过程</h2><p>为了说明普通索引和唯一索引对于更新语句的影响，需要先介绍一下<code>change buffer</code>。</p>
-<p>当需要更新一个数据页时，如果数据页在内存中就直接更新，而如果这个数据页还<strong>没有在内存中</strong>的话，在不影响数据一致性的前提下，<code>InnoDB</code> 会将这些更新操作缓存在 <code>change buffer</code> 中，<strong>这样就不需要从磁盘中读入这个数据页了</strong>。在下次查询需要访问这个数据页的时候，将数据页读入内存，然后执行 <code>change buffer</code> 中与这个页有关的操作。通过这种方式就能保证这个数据逻辑的正确性。</p>
-<p>需要说明的是，虽然名字叫作 <code>change buffer</code>，实际上它是可以持久化的数据。也就是说，<code>change buffer</code> 在内存中有拷贝，也会被写入到磁盘上。</p>
-<p>将 <code>change buffer</code> 中的操作应用到原数据页，得到最新结果的过程称为 <code>merge</code>。除了访问这个数据页会触发 <code>merge</code> 外，系统有后台线程会定期 <code>merge</code>。在数据库正常关闭（shutdown）的过程中，也会执行 <code>merge</code> 操作。</p>
-<p>那么，<strong>什么条件下可以使用change buffer呢？</strong></p>
-<p>对于唯一索引来说，所有的更新操作都要先判断这个操作是否违反唯一性约束。比如，要插入 (4,400) 这个记录，就要先判断现在表中是否已经存在 k&#x3D;4 的记录，而这必须要将数据页读入内存才能判断。如果都已经读入到内存了，那直接更新内存会更快，就没必要使用 change buffer 了。</p>
-<p>因此，<strong>唯一索引的更新就不能使用 change buffer，实际上也只有普通索引可以使用。</strong></p>
-<p>现在，已经理解了 change buffer 的机制，那么再来看看如果要在这张表中插入一个新记录 (4,400) 的话，InnoDB 的处理流程是怎样的。</p>
-<p>第一种情况是，这个记录要更新的目标页在内存中。这时，InnoDB 的处理流程如下：</p>
-<ul>
-<li>对于唯一索引来说，找到 3 和 5 之间的位置，判断到没有冲突，插入这个值，语句执行结束；</li>
-<li>对于普通索引来说，找到 3 和 5 之间的位置，插入这个值，语句执行结束。</li>
-</ul>
-<p>这样，普通索引和唯一索引对更新语句性能影响的差别不大。</p>
-<p>但是，第二种情况是，这个记录要<strong>更新的目标也不在内存中</strong>，这时，InnoDB的处理流程如下：</p>
-<ul>
-<li>对于<strong>唯一索引</strong>来说，需要<strong>将数据页读入内存</strong>，判断到没有冲突，插入这个值，语句执行结束；</li>
-<li>对于<strong>普通索引</strong>来说，则是<strong>将更新记录在 change buffer</strong>，语句执行就结束了。</li>
-</ul>
-<p>将数据从磁盘读入内存涉及随机 IO 的访问，是数据库里面成本最高的操作之一。change buffer 因为减少了随机磁盘访问，所以对更新性能的提升是会很明显的。</p>
-<h2 id="change-buffer的使用场景"><a href="#change-buffer的使用场景" class="headerlink" title="change buffer的使用场景"></a>change buffer的使用场景</h2><p>对于<strong>写多读少的业务</strong>来说，页面在写完以后马上被访问到的概率比较小，此时change buffer的使用效果最好。这种<strong>业务模型常见的就是账单类、日志类的系统</strong>。</p>
-<h2 id="索引选择和实践"><a href="#索引选择和实践" class="headerlink" title="索引选择和实践"></a>索引选择和实践</h2><p>普通索引和唯一索引应该怎么选择。其实，这两类索引在查询能力上是没差别的，主要考虑的是对更新性能的影响。所以，<strong>建议尽量选择普通索引</strong>。</p>
-<p>如果所有的更新后面，都马上伴随着对这个记录的查询，那么应该关闭 change buffer。而在其他情况下，change buffer 都能提升更新性能。</p>
-<p>在实际使用中，会发现，普通索引和 change buffer 的配合使用，对于数据量大的表的更新优化还是很明显的。</p>
-
+          <!--noindex-->
+            <div class="post-button">
+              <a class="btn" href="/2024/10/24/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B29%E3%80%91%E6%99%AE%E9%80%9A%E7%B4%A2%E5%BC%95%E5%92%8C%E5%94%AF%E4%B8%80%E7%B4%A2%E5%BC%95%E6%80%8E%E4%B9%88%E9%80%89%E6%8B%A9/#more" rel="contents">
+                Read more &raquo;
+              </a>
+            </div>
+          <!--/noindex-->
+        
       
     </div>
 
@@ -305,9 +278,15 @@
         <i class="far fa-calendar"></i>
       </span>
       <span class="post-meta-item-text">Posted on</span>
-      
 
-      <time title="Created: 2024-10-20 20:40:30 / Modified: 22:26:09" itemprop="dateCreated datePublished" datetime="2024-10-20T20:40:30+08:00">2024-10-20</time>
+      <time title="Created: 2024-10-20 20:40:30" itemprop="dateCreated datePublished" datetime="2024-10-20T20:40:30+08:00">2024-10-20</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">Edited on</span>
+      <time title="Modified: 2024-11-03 17:20:51" itemprop="dateModified" datetime="2024-11-03T17:20:51+08:00">2024-11-03</time>
     </span>
     <span class="post-meta-item">
       <span class="post-meta-item-icon">
@@ -329,86 +308,15 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h2 id="重排序"><a href="#重排序" class="headerlink" title="重排序"></a>重排序</h2><p>重排序是指编译器和处理器为了优化程序性能而对<strong>指令序列进行重新排序的一种手段。</strong></p>
-<h3 id="数据依赖性"><a href="#数据依赖性" class="headerlink" title="数据依赖性"></a>数据依赖性</h3><p>如果两个操作访问同一个变量，且这两个操作中有一个为写操作，此时这两个操作之间就存在数据依赖性。数据依赖分为下列3种类型，如下表所示：</p>
-<table>
-<thead>
-<tr>
-<th align="center">名称</th>
-<th align="center">代码示例</th>
-<th align="center">说明</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="center">写后读</td>
-<td align="center">a &#x3D; 1;<br>b &#x3D; a;</td>
-<td align="center">写一个变量之后，再读这个位置</td>
-</tr>
-<tr>
-<td align="center">写后写</td>
-<td align="center">a &#x3D; 1;<br>a &#x3D; 2;</td>
-<td align="center">写一个变量之后，再写这个变量</td>
-</tr>
-<tr>
-<td align="center">读后写</td>
-<td align="center">a &#x3D; b;<br>b &#x3D; 1;</td>
-<td align="center">读一个变量之后，再写这个变量</td>
-</tr>
-</tbody></table>
-<p>上面三种情况，只要重排序两个操作的执行顺序，程序的执行结果就会被改变。</p>
-<p>编译器和处理器可能会对操作做重排序。编译器和处理器在重排序时，会遵守数据依赖性，<strong>编译器和处理器不会改变存在数据依赖关系的两个操作的执行顺序。</strong></p>
-<p>这里所说的数据依赖性仅针对单个处理器中执行的指令序列和单个线程中执行的操作，不同处理器之间和不同线程之间的数据依赖性不被编译器和处理器考虑。</p>
-<h3 id="as-if-serial语义"><a href="#as-if-serial语义" class="headerlink" title="as-if-serial语义"></a>as-if-serial语义</h3><p>不管怎么进行重排序（编译器和处理器为了提高并行度），<strong>（单线程）程序的执行结果不能被改变</strong>。编译器、runtime和处理器都必须遵守<code>as-if-serial</code>语义。</p>
-<p>为了遵守<code>as-if-serial</code>语义，编译器和处理器不会对存在数据依赖关系的操作做重排序，因为这种重排序会改变执行结果。但是，如果操作之间不存在数据依赖关系，这些操作就可以被编译器和处理器重排序。</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">double</span> <span class="variable">pi</span> <span class="operator">=</span> <span class="number">3.14</span>; <span class="comment">//A</span></span><br><span class="line"><span class="type">double</span> <span class="variable">r</span> <span class="operator">=</span> <span class="number">1.0</span>; <span class="comment">//B</span></span><br><span class="line"><span class="type">double</span> <span class="variable">area</span> <span class="operator">=</span> pi * r * r; <span class="comment">//C</span></span><br></pre></td></tr></table></figure>
-
-<p>上面3个操作的数据依赖关系如下图所示</p>
-<p><img src="/2024/10/20/%E3%80%90Java%E5%B9%B6%E5%8F%91%E7%BC%96%E7%A8%8B%E7%9A%84%E8%89%BA%E6%9C%AF3%E3%80%91Java%E5%86%85%E5%AD%98%E6%A8%A1%E5%9E%8B%EF%BC%88%E4%B8%AD%EF%BC%89/3%E4%B8%AA%E6%93%8D%E4%BD%9C%E4%B9%8B%E9%97%B4%E7%9A%84%E4%BE%9D%E8%B5%96%E5%85%B3%E7%B3%BB.jpg" alt="3个操作之间的依赖关系"></p>
-<p>A与C之间存在数据依赖关系，B与C之间存在数据依赖关系，因此在最终执行的指令序列中，C不能被重排序到A和B的前面（C排到A和B的前面，程序的结果将会被改变）。但A和B之间没有数据依赖关系，编译器和处理器可以重排序A和B之间的执行顺序，下图是该程序的两种执行顺序</p>
-<p><img src="/2024/10/20/%E3%80%90Java%E5%B9%B6%E5%8F%91%E7%BC%96%E7%A8%8B%E7%9A%84%E8%89%BA%E6%9C%AF3%E3%80%91Java%E5%86%85%E5%AD%98%E6%A8%A1%E5%9E%8B%EF%BC%88%E4%B8%AD%EF%BC%89/%E7%A8%8B%E5%BA%8F%E7%9A%84%E4%B8%A4%E7%A7%8D%E6%89%A7%E8%A1%8C%E9%A1%BA%E5%BA%8F.jpg" alt="程序的两种执行顺序"></p>
-<h3 id="重排序对多线程的影响"><a href="#重排序对多线程的影响" class="headerlink" title="重排序对多线程的影响"></a>重排序对多线程的影响</h3><p>现在看一下重排序是否会改变多线程程序的执行结果，示例代码如下：</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">RecordExample</span> &#123;</span><br><span class="line">    <span class="type">int</span> <span class="variable">a</span> <span class="operator">=</span> <span class="number">0</span>;</span><br><span class="line">    <span class="type">boolean</span> <span class="variable">flag</span> <span class="operator">=</span> <span class="literal">false</span>;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">writer</span><span class="params">()</span> &#123;</span><br><span class="line">        a = <span class="number">1</span>;                  <span class="comment">//1</span></span><br><span class="line">        flag = <span class="literal">true</span>;            <span class="comment">//2</span></span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">reader</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="keyword">if</span> (flag) &#123;             <span class="comment">//3</span></span><br><span class="line">            <span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> a * a;      <span class="comment">//4</span></span><br><span class="line">            <span class="comment">// ......</span></span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>flag变量是个标记，用来标识变量a是否已经被写入。这里假设有两个线程A和B，A首先执行<code>writer()</code>方法，随后B线程接着执行<code>reader()</code>方法。线程B执行操作4时，能否看到线程A在操作1对共享变量a的写入？</p>
-<p><strong>答案是：不一定能看到。</strong></p>
-<p>由于操作1和操作2没有数据依赖关系，操作3和操作4也没有数据依赖关系，编译器和处理器分别可以对这两组操作进行重排序，下图展示了操作1和操作2重排序时，可能会产生什么效果。</p>
-<p><img src="/2024/10/20/%E3%80%90Java%E5%B9%B6%E5%8F%91%E7%BC%96%E7%A8%8B%E7%9A%84%E8%89%BA%E6%9C%AF3%E3%80%91Java%E5%86%85%E5%AD%98%E6%A8%A1%E5%9E%8B%EF%BC%88%E4%B8%AD%EF%BC%89/%E7%A8%8B%E5%BA%8F%E6%89%A7%E8%A1%8C%E6%97%B6%E5%BA%8F%E5%9B%BE.jpg" alt="程序执行时序图"></p>
-<p>程序执行时，线程A首先写标记变量flag，随后线程B读这个变量。由于条件判断为真，线程B将读取变量a。此时变量a还没有被线程A写入，这里多线程程序的语义被重排序破坏了。</p>
-<h2 id="顺序一致性"><a href="#顺序一致性" class="headerlink" title="顺序一致性"></a>顺序一致性</h2><p>顺序一致性内存模型是一个理论参考模型，在设计的时候，处理器的内存模型和编程语言的内存模型都会以顺序一致性内存模型作为参照。</p>
-<h3 id="数据竞争与顺序一致性"><a href="#数据竞争与顺序一致性" class="headerlink" title="数据竞争与顺序一致性"></a>数据竞争与顺序一致性</h3><p>当程序未正确同步时，就可能会存在数据竞争。Java内存模型规范对数据竞争的定义如下：</p>
-<ul>
-<li>在一个线程中写入一个变量</li>
-<li>在另一个线程中读同一个变量</li>
-<li>而且写和读没有通过同步来排序</li>
-</ul>
-<h3 id="顺序一致性内存模型"><a href="#顺序一致性内存模型" class="headerlink" title="顺序一致性内存模型"></a>顺序一致性内存模型</h3><p>顺序一致性内存模型是一个被计算机科学家理想化了的理论参考模型，它为程序员提供了极强的内存可见性保证。顺序一致性内存模型有两大特性。</p>
-<ol>
-<li>一个线程中的所有操作必须按照程序的顺序来执行。</li>
-<li>（不管程序是否同步）所有线程都只能看到一个单一的操作执行顺序。在顺序一致性内存模型中，每个操作都必须原子执行且立刻对所有线程可见。</li>
-</ol>
-<p>顺序一致性内存模型为程序员提供的视图如下图所示：</p>
-<p><img src="/2024/10/20/%E3%80%90Java%E5%B9%B6%E5%8F%91%E7%BC%96%E7%A8%8B%E7%9A%84%E8%89%BA%E6%9C%AF3%E3%80%91Java%E5%86%85%E5%AD%98%E6%A8%A1%E5%9E%8B%EF%BC%88%E4%B8%AD%EF%BC%89/%E9%A1%BA%E5%BA%8F%E4%B8%80%E8%87%B4%E6%80%A7%E5%86%85%E5%AD%98%E6%A8%A1%E5%9E%8B%E7%9A%84%E8%A7%86%E5%9B%BE.jpg" alt="顺序一致性内存模型的视图"></p>
-<p>在概念上，顺序一致性模型有一个单一的全局内存，这个内存通过一个左右摆动的开关可以连接到任意一个线程，同时每一个线程必须按照程序的顺序来执行内存读&#x2F;写操作。在任意时间点最多只能有一个线程可以连接到内存。<strong>当多个线程并发执行时，图中的开关装置能把所有线程的所有内存读&#x2F;写操作串行化（即在顺序一致性模型中，所有操作之间具有全序关系）。</strong></p>
-<p>下面通过两个示意图来对顺序一致性模型的特性做进一步的说明。</p>
-<p>假设有两个线程A和B并发执行。其中A线程有3个操作，它们在程序中的顺序是：A1-&gt;A2-&gt;A3。B线程也有3个操作，它们在程序中的顺序是：B1-&gt;B2-&gt;B3。</p>
-<p>假设这两个线程<strong>使用监视器锁来正确同步</strong>：A线程的3个操作执行后释放监视器锁，随后B线程获取同一个监视器锁。那么程序在顺序一致性模型中的执行效果如下图所示：</p>
-<p><img src="/2024/10/20/%E3%80%90Java%E5%B9%B6%E5%8F%91%E7%BC%96%E7%A8%8B%E7%9A%84%E8%89%BA%E6%9C%AF3%E3%80%91Java%E5%86%85%E5%AD%98%E6%A8%A1%E5%9E%8B%EF%BC%88%E4%B8%AD%EF%BC%89/%E9%A1%BA%E5%BA%8F%E4%B8%80%E8%87%B4%E6%80%A7%E6%A8%A1%E5%9E%8B%E7%9A%84%E4%B8%80%E7%A7%8D%E6%89%A7%E8%A1%8C%E6%95%88%E6%9E%9C.jpg" alt="顺序一致性模型的一种执行效果"></p>
-<p>在假设<strong>这两个线程没有做同步</strong>，下面是这个未同步在顺序一致性模型中的执行示意图，如下图所示;</p>
-<p><img src="/2024/10/20/%E3%80%90Java%E5%B9%B6%E5%8F%91%E7%BC%96%E7%A8%8B%E7%9A%84%E8%89%BA%E6%9C%AF3%E3%80%91Java%E5%86%85%E5%AD%98%E6%A8%A1%E5%9E%8B%EF%BC%88%E4%B8%AD%EF%BC%89/%E9%A1%BA%E5%BA%8F%E4%B8%80%E8%87%B4%E6%80%A7%E6%A8%A1%E5%9E%8B%E4%B8%AD%E7%9A%84%E5%8F%A6%E4%B8%80%E7%A7%8D%E6%89%A7%E8%A1%8C%E6%95%88%E6%9E%9C.jpg" alt="顺序一致性模型中的另一种执行效果"></p>
-<h3 id="同步程序的顺序一致性效果"><a href="#同步程序的顺序一致性效果" class="headerlink" title="同步程序的顺序一致性效果"></a>同步程序的顺序一致性效果</h3><p>示例如下：</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">SynchronizedExample</span> &#123;</span><br><span class="line">    <span class="type">int</span> <span class="variable">a</span> <span class="operator">=</span> <span class="number">0</span>;</span><br><span class="line">    <span class="type">boolean</span> <span class="variable">flag</span> <span class="operator">=</span> <span class="literal">false</span>;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">synchronized</span> <span class="keyword">void</span> <span class="title function_">writer</span><span class="params">()</span> &#123;             <span class="comment">//获取锁</span></span><br><span class="line">        a = <span class="number">1</span>;</span><br><span class="line">        flag = <span class="literal">true</span>;</span><br><span class="line">    &#125;                                               <span class="comment">//释放锁</span></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">synchronized</span> <span class="keyword">void</span> <span class="title function_">reader</span><span class="params">()</span> &#123;             <span class="comment">//获取锁</span></span><br><span class="line">        <span class="keyword">if</span> (flag) &#123;</span><br><span class="line">            <span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> a;</span><br><span class="line">            <span class="comment">// ......</span></span><br><span class="line">        &#125;</span><br><span class="line">    &#125;                                               <span class="comment">//释放锁</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>在上面的代码示例中，假设线程A执行<code>writer()</code>后，线程B执行<code>reader()</code>方法。这是一个正确同步的多线程程序。</p>
-<p>顺序一致性模型中，所有操作完全按程序的顺序串行执行。而在JMM中，临界区中段代码可以重排序（但JMM不允许临界区内的代码“逸出”到临界区之外，那样会破坏监视器的语义。）虽然线程A可能在临界区内做了重排序，但由于监视器互斥执行的特性，这里的线程B根本无法“观察”到线程A在临界区内的重排序，这种重排序既提高了执行效率，又没有改变程序的执行结果。</p>
-<h3 id="未同步程序的执行特性"><a href="#未同步程序的执行特性" class="headerlink" title="未同步程序的执行特性"></a>未同步程序的执行特性</h3><p>对于未同步或未正确同步的多线程程序，JMM只提供最小安全性，线程执行时读取到的值，要么是之前某个线程写入的值，要么是默认值（0，Null，False），JMM保证线程读操作读取到的值不会无中生有地冒出来。</p>
-<p>JMM不保证未同步程序的执行效果与该程序在顺序一致性模型中的执行结果一致。</p>
-<p>未同步程序在JMM中的执行时，整体上是无序的，其执行结果无法预知。未同步程序在两个模型中的执行特性有如下几个差异：</p>
-<ol>
-<li>顺序一致性模型保证单线程内的操作会按程序的顺序执行，而JMM不保证单线程内的操作会按程序的顺序执行</li>
-<li>顺序一致性模型保证所有线程只能看到一致地操作执行顺序，而JMM不保证所有线程能看到一致地操作执行顺序。</li>
-<li>JMM不保证对64位的long型和double型变量的写操作鱼油原子性，而顺序一致性保证对所有的内存读&#x2F;写操作都具有原子性。</li>
-</ol>
-
+          <h2 id="前言"><a href="#前言" class="headerlink" title="前言"></a>前言</h2><p>这篇文章主要介绍重排序与顺序一致性内存模型</p>
+          <!--noindex-->
+            <div class="post-button">
+              <a class="btn" href="/2024/10/20/%E3%80%90Java%E5%B9%B6%E5%8F%91%E7%BC%96%E7%A8%8B%E7%9A%84%E8%89%BA%E6%9C%AF3%E3%80%91Java%E5%86%85%E5%AD%98%E6%A8%A1%E5%9E%8B%EF%BC%88%E4%B8%AD%EF%BC%89/#more" rel="contents">
+                Read more &raquo;
+              </a>
+            </div>
+          <!--/noindex-->
+        
       
     </div>
 
@@ -462,9 +370,15 @@
         <i class="far fa-calendar"></i>
       </span>
       <span class="post-meta-item-text">Posted on</span>
-      
 
-      <time title="Created: 2024-10-15 10:00:38 / Modified: 19:41:58" itemprop="dateCreated datePublished" datetime="2024-10-15T10:00:38+08:00">2024-10-15</time>
+      <time title="Created: 2024-10-15 10:00:38" itemprop="dateCreated datePublished" datetime="2024-10-15T10:00:38+08:00">2024-10-15</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">Edited on</span>
+      <time title="Modified: 2024-11-03 17:11:59" itemprop="dateModified" datetime="2024-11-03T17:11:59+08:00">2024-11-03</time>
     </span>
     <span class="post-meta-item">
       <span class="post-meta-item-icon">
@@ -488,154 +402,14 @@
     <div class="post-body" itemprop="articleBody">
           <h2 id="前言"><a href="#前言" class="headerlink" title="前言"></a>前言</h2><p>如果是可重复读隔离级别，事务T启动的时候会创建一个视图read-view，<strong>之后事务T执行期间，即使有其他事务修改了数据，事务T看到的仍然跟在启动时看到的一样。</strong></p>
 <p>但当一个事务要更新一行的时候，如果刚好有另外一个事务拥有这一行的行锁，这个事务会被锁住，进入等待状态。<strong>问题是，既然进入了等待状态，那么等到这个事务自己获取到行锁要更新数据的时候，它读到的值又是什么呢？</strong></p>
-<h2 id="案例"><a href="#案例" class="headerlink" title="案例"></a>案例</h2><p>下面是一个只有两行的表的初始化语句</p>
-<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">mysql<span class="operator">&gt;</span> <span class="keyword">CREATE</span> <span class="keyword">TABLE</span> `t` (</span><br><span class="line">  `id` <span class="type">int</span>(<span class="number">11</span>) <span class="keyword">NOT</span> <span class="keyword">NULL</span>,</span><br><span class="line">  `k` <span class="type">int</span>(<span class="number">11</span>) <span class="keyword">DEFAULT</span> <span class="keyword">NULL</span>,</span><br><span class="line">  <span class="keyword">PRIMARY</span> KEY (`id`)</span><br><span class="line">) ENGINE<span class="operator">=</span>InnoDB;</span><br><span class="line"><span class="keyword">insert</span> <span class="keyword">into</span> t(id, k) <span class="keyword">values</span>(<span class="number">1</span>,<span class="number">1</span>),(<span class="number">2</span>,<span class="number">2</span>);</span><br></pre></td></tr></table></figure>
-
-<table>
-<thead>
-<tr>
-<th>事务A</th>
-<th>事务B</th>
-<th>事务C</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>start transaction with consistent snapshot;</td>
-<td></td>
-<td></td>
-</tr>
-<tr>
-<td></td>
-<td>start transaction with consistent snapshot;</td>
-<td></td>
-</tr>
-<tr>
-<td></td>
-<td></td>
-<td>update t set k&#x3D;k+1 where id&#x3D;1;</td>
-</tr>
-<tr>
-<td></td>
-<td>update t set k&#x3D;k+1 where id&#x3D;1;</td>
-<td></td>
-</tr>
-<tr>
-<td>select k from t where id&#x3D;1;<br>commit;</td>
-<td></td>
-<td></td>
-</tr>
-<tr>
-<td></td>
-<td>commit;</td>
-<td></td>
-</tr>
-</tbody></table>
-<p><code>begin/start transaction</code> 命令并不是一个事务的起点，在执行到它们之后的第一个操作 InnoDB 表的语句，事务才真正启动。如果想要马上启动一个事务，可以使用 <code>start transaction with consistent snapshot</code> 这个命令。</p>
-<p><code>begin/start transaction</code> ：一致性视图是在<strong>执行第一个快照读语</strong>句时创建。</p>
-<p><code>start transaction with consistent snapshot</code>：一致性视图是在执行<code>start transaction with consistent snapshot</code>时创建</p>
-<p>事务 C 没有显式地使用 begin&#x2F;commit，表示这个 update 语句本身就是一个事务，语句完成的时候会自动提交。事务 B 在更新了行之后查询 ; 事务 A 在一个只读事务中查询，并且时间顺序上是在事务 B 的查询之后。</p>
-<p>和第一感觉相反的是，事务B查到的k的值是3，事务A查到的k的值是1</p>
-<h2 id="“快照”在MVCC里是怎么工作的"><a href="#“快照”在MVCC里是怎么工作的" class="headerlink" title="“快照”在MVCC里是怎么工作的"></a>“快照”在MVCC里是怎么工作的</h2><p>在可重复读隔离级别下，事务在启动的时候就“拍了个快照”。这个快照是基于整库的。</p>
-<p>InnoDB里面每个事务有一个唯一的事务ID，叫做transaction id。它是在事务开始的时候想InnoDB的事务系统申请的，是按申请顺序严格递增的。</p>
-<p>每行数据也都有多个版本，每次事务更新数据的时候，都会生成一个新的数据版本，并且把transaction id赋值给这个数据版本的事务ID，记为row trx_id。同时，旧的数据版本要保留，并且在新的数据版本中，能够有信息可以直接拿到它。</p>
-<p>也就是说，数据表中的一行记录，其实可能有多个版本（row），每个版本有自己的row trx_id</p>
-<p><img src="/2024/10/15/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B28%E3%80%91%E4%BA%8B%E5%8A%A1%E5%88%B0%E5%BA%95%E6%98%AF%E9%9A%94%E7%A6%BB%E8%BF%98%E6%98%AF%E4%B8%8D%E9%9A%94%E7%A6%BB/%E8%A1%8C%E7%8A%B6%E6%80%81%E5%8F%98%E6%9B%B4%E5%9B%BE.jpg" alt="行状态变更图"></p>
-<p>图中虚线框里是同一行数据的 4 个版本，当前最新版本是 V4，k 的值是 22，它是被 transaction id 为 25 的事务更新的，因此它的 row trx_id 也是 25。</p>
-<p>图中的3个虚线箭头，就是<strong>undo log</strong>；而V1，V2，V3并不是物理上真实存在的，而是每次需要的时候根据当前版本和undo log计算出来的。比如，需要V2的时候，就是通过V4依次执行U3，U2算出来。</p>
-<p>InnoDB为每个事务构造了一个数组，用来保存这个事务启动瞬间，当前正在“活跃”的所有事务ID。“活跃”指的就是，启动了但还没提交。数组里面<strong>事务ID的最小值记为低水位</strong>，当前系统里面<strong>已经创建过的事务ID的最大值加1记为高水位</strong>。</p>
-<p>这个视图数组和高水位，就组成了当前事务的一致性视图（read-view）</p>
-<p>而数据版本的可见性规则，就是基于数据的row trx_id和这个一致性视图的对比结果得到的。</p>
-<p><img src="/2024/10/15/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B28%E3%80%91%E4%BA%8B%E5%8A%A1%E5%88%B0%E5%BA%95%E6%98%AF%E9%9A%94%E7%A6%BB%E8%BF%98%E6%98%AF%E4%B8%8D%E9%9A%94%E7%A6%BB/%E6%95%B0%E6%8D%AE%E7%89%88%E6%9C%AC%E5%8F%AF%E8%A7%81%E6%80%A7%E8%A7%84%E5%88%99.jpg" alt="数据版本可见性规则"></p>
-<p>对于当前事务的启动瞬间来说，一个数据版本的row trx_id，有以下几种可能;</p>
-<ol>
-<li>如果<strong>落在绿色</strong>部分，表示这个版本是已经提交的事务，或者是当前事务自己生产的，这个数据是可见的</li>
-<li>如果<strong>落在红色</strong>部分，表示这个版本是由将来启动的事务生成的，是肯定不可见的</li>
-<li>如果<strong>落在黄色</strong>部分，包括两种情况：<ul>
-<li>若row trx_id在数组中，表示这个版本是由还没提交的事务生成的，不可见</li>
-<li>若row trx_id不在数组中，表示这个版本是已经提交了的事务生成的，可见</li>
-</ul>
-</li>
-</ol>
-<p>比如，如果有一个事务，它的低水位是 18，那么当它访问这一行数据时，就会从 V4 通过 U3 计算出 V3，所以在它看来，这一行的值是 11。</p>
-<p>有了这个声明后，系统里面随后发生的更新，就和这个事务看到的内容无关了，之后的更新，新的数据版本对于当前的事务来说是不存在的，所以这个事务的快照，是“静态”的。</p>
-<p>接下来，看看第一个表格中的三个事务，分析下事务A的语句返回的结果，为什么是k&#x3D;1</p>
-<p>假设：</p>
-<ol>
-<li>事务A开始前，系统里面只有一个活跃事务ID是99</li>
-<li>事务A、B、C的版本号分别是100、101、102，且当前系统里只有这四个事务</li>
-<li>三个事务开始前，（1,1）这个一行数据的row trx_id</li>
-</ol>
-<p>事务A的视图数组是[99, 100]，事务B的视图数组是[99,100,101]，事务C的视图数组是[99,100,101,102]</p>
-<p>为了简化分析，先把其他干扰语句去掉，只画出跟事务A查询逻辑有关的操作：</p>
-<p><img src="/2024/10/15/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B28%E3%80%91%E4%BA%8B%E5%8A%A1%E5%88%B0%E5%BA%95%E6%98%AF%E9%9A%94%E7%A6%BB%E8%BF%98%E6%98%AF%E4%B8%8D%E9%9A%94%E7%A6%BB/%E4%BA%8B%E5%8A%A1A%E6%9F%A5%E8%AF%A2%E6%95%B0%E6%8D%AE%E9%80%BB%E8%BE%91%E5%9B%BE.jpg" alt="事务A查询数据逻辑图"></p>
-<p>从图中可以看到，第一个有效更新是事务 C，把数据从 (1,1) 改成了 (1,2)。这时候，这个数据的最新版本的 row trx_id 是 102，而 90 这个版本已经成为了历史版本。</p>
-<p>第二个有效更新是事务 B，把数据从 (1,2) 改成了 (1,3)。这时候，这个数据的最新版本（即 row trx_id）是 101，而 102 又成为了历史版本。</p>
-<p>在事务 A 查询的时候，其实事务 B 还没有提交，但是它生成的 (1,3) 这个版本已经变成当前版本了。但这个版本对事务 A 必须是不可见的，否则就变成脏读了。</p>
-<p>现在事务 A 要来读数据了，它的视图数组是[99,100]。当然了，读数据都是从当前版本读起的。所以，事务 A 查询语句的读数据流程是这样的：</p>
-<ul>
-<li>找到 (1,3) 的时候，判断出 row trx_id&#x3D;101，比高水位大，处于红色区域，不可见；</li>
-<li>接着，找到上一个历史版本，一看 row trx_id&#x3D;102，比高水位大，处于红色区域，不可见；</li>
-<li>再往前找，终于找到了（1,1)，它的 row trx_id&#x3D;90，比低水位小，处于绿色区域，可见。</li>
-</ul>
-<p>这样执行下来，虽然期间这一行数据被修改过，但是事务 A 不论在什么时候查询，看到这行数据的结果都是一致的，所以我们称之为一致性读。</p>
-<h2 id="更新逻辑"><a href="#更新逻辑" class="headerlink" title="更新逻辑"></a>更新逻辑</h2><p>对于上述的逻辑图，其实有一个疑问没有解答：事务B的update语句，如果按照一致性读，好像结果是不对的？</p>
-<p>事务B的视图数组是先生成的，之后事务C才提交，不是应该看不见(1,2)吗，怎么能算出(1,3)来？</p>
-<p>是的，如果事务B在更新之前查询一次数据，这个查询返回的k的值确实是1</p>
-<p>但是，当它要去更新数据的时候，就不能再在历史版本上更新了，否则事务C的更新就丢失了。因此，事务B此时的set k &#x3D; k + 1是在(1,2)的基础上进行的操作。</p>
-<p>所以，<strong>这里就用到了这样一条规则，更新数据都是先读后写，而这个读，只能读当前的值，称为“当前读”（current read）</strong></p>
-<p>因此，在更新的时候，当前读拿到的数据是 (1,2)，更新后生成了新版本的数据 (1,3)，这个新版本的 row trx_id 是 101。</p>
-<p>所以，在执行事务 B 查询语句的时候，一看自己的版本号是 101，最新数据的版本号也是 101，是自己的更新，可以直接使用，所以查询得到的 k 的值是 3。</p>
-<p>这里我们提到了一个概念，叫作<strong>当前读</strong>。其实，<strong>除了 update 语句外，select 语句如果加锁，也是当前读。</strong></p>
-<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">mysql<span class="operator">&gt;</span> <span class="keyword">select</span> k <span class="keyword">from</span> t <span class="keyword">where</span> id<span class="operator">=</span><span class="number">1</span> lock <span class="keyword">in</span> share mode;</span><br><span class="line">mysql<span class="operator">&gt;</span> <span class="keyword">select</span> k <span class="keyword">from</span> t <span class="keyword">where</span> id<span class="operator">=</span><span class="number">1</span> <span class="keyword">for</span> <span class="keyword">update</span>;</span><br></pre></td></tr></table></figure>
-
-<p>假设事务C不是马上提交的，而是变成下面的事务C’，会怎么样呢</p>
-<table>
-<thead>
-<tr>
-<th>事务A</th>
-<th>事务B</th>
-<th>事务C’</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>start transaction with consistent snapshot;</td>
-<td></td>
-<td></td>
-</tr>
-<tr>
-<td></td>
-<td>start transaction with consistent snapshot;</td>
-<td></td>
-</tr>
-<tr>
-<td></td>
-<td></td>
-<td>start transaction with consistent snapshot;<br>update t set k&#x3D;k+1 where id&#x3D;1;</td>
-</tr>
-<tr>
-<td></td>
-<td>update t set k&#x3D;k+1 where id&#x3D;1;<br>select k from t where id&#x3D;1;</td>
-<td></td>
-</tr>
-<tr>
-<td>select k from t where id&#x3D;1;<br>commit;</td>
-<td></td>
-<td></td>
-</tr>
-<tr>
-<td></td>
-<td>commit;</td>
-<td>commit;</td>
-</tr>
-</tbody></table>
-<p>事务 C’的不同是，更新后并没有马上提交，在它提交前，事务 B 的更新语句先发起了。前面说过了，虽然事务 C’还没提交，但是 (1,2) 这个版本也已经生成了，并且是当前的最新版本。那么，事务 B 的更新语句会怎么处理呢？</p>
-<p>这时候，“两阶段锁协议”就要上场了。事务 C’没提交，也就是说 (1,2) 这个版本上的写锁还没释放。而<strong>事务 B 是当前读，必须要读最新版本，而且必须加锁，因此就被锁住了，必须等到事务 C’释放这个锁，才能继续它的当前读。</strong></p>
-<p>读提交的逻辑和可重复读的逻辑类型，它们最主要的区别是;</p>
-<ul>
-<li>在可重复读隔离级别下，只需要再事务开始的时候创建一致性视图，之后事务里的其他查询都共用这个一致性视图</li>
-<li>在读提交隔离级别下，每一个语句执行前都会重新算出一个新的视图</li>
-</ul>
-
+          <!--noindex-->
+            <div class="post-button">
+              <a class="btn" href="/2024/10/15/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B28%E3%80%91%E4%BA%8B%E5%8A%A1%E5%88%B0%E5%BA%95%E6%98%AF%E9%9A%94%E7%A6%BB%E8%BF%98%E6%98%AF%E4%B8%8D%E9%9A%94%E7%A6%BB/#more" rel="contents">
+                Read more &raquo;
+              </a>
+            </div>
+          <!--/noindex-->
+        
       
     </div>
 
@@ -689,9 +463,15 @@
         <i class="far fa-calendar"></i>
       </span>
       <span class="post-meta-item-text">Posted on</span>
-      
 
-      <time title="Created: 2024-10-06 00:42:44 / Modified: 01:08:24" itemprop="dateCreated datePublished" datetime="2024-10-06T00:42:44+08:00">2024-10-06</time>
+      <time title="Created: 2024-10-06 00:42:44" itemprop="dateCreated datePublished" datetime="2024-10-06T00:42:44+08:00">2024-10-06</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">Edited on</span>
+      <time title="Modified: 2024-11-03 17:13:53" itemprop="dateModified" datetime="2024-11-03T17:13:53+08:00">2024-11-03</time>
     </span>
     <span class="post-meta-item">
       <span class="post-meta-item-icon">
@@ -713,84 +493,15 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h2 id="行锁"><a href="#行锁" class="headerlink" title="行锁"></a>行锁</h2><p>不是所有的引擎都支持行锁，比如<code>MyISAM</code>引擎就不支持行锁，<code>InnoDB</code>是支持行锁的，这也是<code>MyISAM</code>被<code>InnoDB</code>替代的重要原因之一。</p>
-<p>顾名思义，<strong>行锁就是针对数据库中行记录的锁</strong>。这很好理解，比如事务A更新了一行，而这时候事务B也要更新同一行，则必须等事务A的操作完成后才能进行更新。</p>
-<h3 id="从两阶段锁说起"><a href="#从两阶段锁说起" class="headerlink" title="从两阶段锁说起"></a>从两阶段锁说起</h3><p>在下列的操作序列中，事务B的update语句执行时会是什么现象？假设字段id是表t的主键。</p>
-<table>
-<thead>
-<tr>
-<th align="center">事务A</th>
-<th align="center">事务B</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="center"><code>begin;</code><br><code>update t set k=k+1 where id=1;</code><br><code>update t set k=k+1 where id=2;</code></td>
-<td align="center"></td>
-</tr>
-<tr>
-<td align="center"></td>
-<td align="center"><code>begin;</code><br><code>update t set k=k+2 where id=1;</code></td>
-</tr>
-<tr>
-<td align="center"><code>commit;</code></td>
-<td align="center"></td>
-</tr>
-</tbody></table>
-<p>这个问题的结论取决于事务A在执行完两条update语句后，持有哪些锁，以及在什么时候释放。实际上事务B的update语句会被阻塞，直到事务A执行commit之后，事务B才能继续执行。</p>
-<p>也就是说，在InnoDB事务中，<strong>行锁是在需要的时候才加上的</strong>，但并不是不需要了就立刻释放，而是<strong>要等到事务结束时才释放</strong>。这就是两阶段锁协议。也就是说，<strong>如果事务中需要锁多个行，要把最可能造成锁冲突、最可能影响并发度的锁尽量往后放。</strong></p>
-<p>假设实现一个电影票在线交易业务，顾客 A 要在影院 B 购买电影票。简化一点，这个业务需要涉及到以下操作：</p>
-<ol>
-<li>从顾客 A 账户余额中扣除电影票价；</li>
-<li>给影院 B 的账户余额增加这张电影票价；</li>
-<li>记录一条交易日志。</li>
-</ol>
-<p>也就是说，要完成这个交易，需要 update 两条记录，并 insert 一条记录。当然，为了保证交易的原子性，要把这三个操作放在一个事务中。那么，怎样安排这三个语句在事务中的顺序呢？</p>
-<p>试想如果同时有另外一个顾客 C 要在影院 B 买票，那么这两个事务冲突的部分就是语句 2 了。因为它们要更新同一个影院账户的余额，需要修改同一行数据。</p>
-<p>根据两阶段锁协议，不论怎样安排语句顺序，所有的操作需要的行锁都是在事务提交的时候才释放的。所以，如果你把语句 2 安排在最后，比如按照 3、1、2 这样的顺序，那么影院账户余额这一行的锁时间就最少。这就最大程度地减少了事务之间的锁等待，提升了并发度。</p>
-<h3 id="死锁和死锁检测"><a href="#死锁和死锁检测" class="headerlink" title="死锁和死锁检测"></a>死锁和死锁检测</h3><p>更进一步，如果这个影院做活动，可以低价预售一年内所有的电影票，而且这个活动只做一天。于是在活动开始的时候，MySQL就挂了。一登上服务器一看，CPU消耗接近100%，但整个数据库每秒就执行不到100个事务，原因是什么呢？这就是死锁了。</p>
-<p>这里用数据库中的行锁来举个例子：</p>
-<table>
-<thead>
-<tr>
-<th align="center">事务A</th>
-<th align="center">事务B</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="center"><code>begin;</code> <br> <code>update t set k=k+1 where id=1;</code></td>
-<td align="center"><code>begin;</code></td>
-</tr>
-<tr>
-<td align="center"></td>
-<td align="center"><code>update t set k=k+1 where id=2;</code></td>
-</tr>
-<tr>
-<td align="center"><code>update t set k=k+1 where id=2;</code></td>
-<td align="center"></td>
-</tr>
-<tr>
-<td align="center"></td>
-<td align="center"><code>update t set k=k+1 where id=1;</code></td>
-</tr>
-</tbody></table>
-<p>这时候，事务 A 在等待事务 B 释放 id&#x3D;2 的行锁，而事务 B 在等待事务 A 释放 id&#x3D;1 的行锁。 事务 A 和事务 B 在互相等待对方的资源释放，就是进入了死锁状态。当出现死锁以后，有两种策略：</p>
-<ul>
-<li>一种策略是，<strong>直接进入等待，直到超时</strong>。这个超时时间可以通过参数 <code>innodb_lock_wait_timeout</code> 来设置。</li>
-<li>另一种策略是，<strong>发起死锁检测，发现死锁后，主动回滚死锁链条中的某一个事务，让其他事务得以继续执行</strong>。将参数 <code>innodb_deadlock_detect</code> 设置为 <code>on</code>，表示开启这个逻辑。</li>
-</ul>
-<p>对于第一种策略，设置时间太长对于在线服务是无法容忍的，太短，又可能误伤类似锁等待的情况，所以，正常情况下，使用第二种策略。</p>
-<p>但是第二种策略也是有额外负担的，可以想象一下这个过程：每当一个事务被锁的时候，就要看看它所依赖的线程有没有被别人锁住，如此循环，最后判断是否出现了循环等待，也就是死锁。那如果上面说到的所有事务都要更新同一行的场景呢？</p>
-<p>每个新来的被堵住的线程，都要判断会不会由于自己的加入导致了死锁，这是一个时间复杂度是 O(n) 的操作。假设有 1000 个并发线程要同时更新同一行，那么死锁检测操作就是 100 万这个量级的。虽然最终检测的结果是没有死锁，但是这期间要消耗大量的 CPU 资源。因此，<strong>CPU 利用率很高，但是每秒却执行不了几个事务。</strong></p>
-<p><strong>怎么解决由这种热点行更新导致的性能问题呢？</strong>问题的症结在于，死锁检测要耗费大量的 CPU 资源。</p>
-<ol>
-<li><p><strong>一种头痛医头的方法，就是如果你能确保这个业务一定不会出现死锁，可以临时把死锁检测关掉。</strong>但是这种操作本身带有一定的风险，因为业务设计的时候一般不会把死锁当做一个严重错误，毕竟出现死锁了，就回滚，然后通过业务重试一般就没问题了，这是业务无损的。而关掉死锁检测意味着可能会出现大量的超时，这是业务有损的。</p>
-</li>
-<li><p><strong>另一个思路是控制并发度。</strong>根据上面的分析，你会发现如果并发能够控制住，比如同一行同时最多只有 10 个线程在更新，那么死锁检测的成本很低，就不会出现这个问题。一个直接的想法就是，在客户端做并发控制。但是，你会很快发现这个方法不太可行，因为客户端很多。我见过一个应用，有 600 个客户端，这样即使每个客户端控制到只有 5 个并发线程，汇总到数据库服务端以后，峰值并发数也可能要达到 3000。</p>
-</li>
-<li><p><strong>可以考虑通过将一行改成逻辑上的多行来减少锁冲突。</strong>还是以影院账户为例，可以考虑放在多条记录上，比如 10 个记录，影院的账户总额等于这 10 个记录的值的总和。这样每次要给影院账户加金额的时候，随机选其中一条记录来加。这样每次冲突概率变成原来的 1&#x2F;10，可以减少锁等待个数，也就减少了死锁检测的 CPU 消耗。</p>
-</li>
-</ol>
-
+          <h2 id="前言"><a href="#前言" class="headerlink" title="前言"></a>前言</h2><p>主要来聊聊 InnoDB 的行锁，以及如何通过减少锁冲突来提升业务并发度。</p>
+          <!--noindex-->
+            <div class="post-button">
+              <a class="btn" href="/2024/10/06/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B27%E3%80%91%E8%A1%8C%E9%94%81%E5%8A%9F%E8%BF%87/#more" rel="contents">
+                Read more &raquo;
+              </a>
+            </div>
+          <!--/noindex-->
+        
       
     </div>
 
@@ -844,9 +555,15 @@
         <i class="far fa-calendar"></i>
       </span>
       <span class="post-meta-item-text">Posted on</span>
-      
 
-      <time title="Created: 2024-10-05 00:11:21 / Modified: 01:14:26" itemprop="dateCreated datePublished" datetime="2024-10-05T00:11:21+08:00">2024-10-05</time>
+      <time title="Created: 2024-10-05 00:11:21" itemprop="dateCreated datePublished" datetime="2024-10-05T00:11:21+08:00">2024-10-05</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">Edited on</span>
+      <time title="Modified: 2024-11-03 17:26:04" itemprop="dateModified" datetime="2024-11-03T17:26:04+08:00">2024-11-03</time>
     </span>
     <span class="post-meta-item">
       <span class="post-meta-item-icon">
@@ -868,81 +585,15 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h2 id="Java内存模型的基础"><a href="#Java内存模型的基础" class="headerlink" title="Java内存模型的基础"></a>Java内存模型的基础</h2><h3 id="并发编程模型的两个关键问题"><a href="#并发编程模型的两个关键问题" class="headerlink" title="并发编程模型的两个关键问题"></a>并发编程模型的两个关键问题</h3><p>在并发编程中，需要处理<strong>两个关键问题</strong>：线程之间<strong>如何通信</strong>以及线程之间<strong>如何同步</strong>。</p>
-<h4 id="通信"><a href="#通信" class="headerlink" title="通信"></a>通信</h4><p>线程之间以何种机制来交换信息。在命令式编程中，线程之间的<strong>通信机制有两种：共享内存和消息传递</strong>。</p>
-<p>在<strong>共享内存</strong>的并发模型里，线程之间共享程序的公共状态，通过写-读内存中的公共状态进行<strong>隐式通信</strong>。在<strong>消息传递</strong>的并发模型里，线程之间没有公共状态，线程之间必须通过发送消息来<strong>显式进行通信</strong>。</p>
-<h4 id="同步"><a href="#同步" class="headerlink" title="同步"></a>同步</h4><p>程序中用于控制不同线程间操作发生相对顺序的机制。在共享内存并发模型里，同步是显式进行的。程序员必须显式指定某个方法或某段代码需要在线程之间互斥执行。在消息传递的并发模型里，由于消息的发送必须在消息的接收之前，因此同步是隐式进行的。</p>
-<p><strong>Java的并发采用的是共享内存模型，Java线程之间的通信总是隐式进行，整个通信过程对程序员完全透明。</strong></p>
-<h3 id="Java内存模型的抽象结构"><a href="#Java内存模型的抽象结构" class="headerlink" title="Java内存模型的抽象结构"></a>Java内存模型的抽象结构</h3><p>在Java中，所有<strong>实例域、静态域和数组元素都存储在堆内存（共享变量）中</strong>，堆内存在线程之间共享（后文将用“共享变量”这个术语代指实例域，静态域和数组元素）。局部变量、方法定义参数和异常处理器参数不会在线程之间共享，它们不会有内存可见性问题，也不受内存模型的影响。</p>
-<p>Java线程之间的通信Java内存模型（后文简称为JMM）控制，JMM决定一个线程对共享变量的写入何时对另一个线程可见。线程之间的共享变量存储在主内存中，每个线程都有一个私有的本地内存，本地内存中存储了该线程以读&#x2F;写共享变量的副本。</p>
-<p>Java内存模型的抽象示意如下图所示：</p>
-<p><img src="/2024/10/05/%E3%80%90Java%E5%B9%B6%E5%8F%91%E7%BC%96%E7%A8%8B%E7%9A%84%E8%89%BA%E6%9C%AF3%E3%80%91Java%E5%86%85%E5%AD%98%E6%A8%A1%E5%9E%8B%EF%BC%88%E4%B8%8A%EF%BC%89/%E5%86%85%E5%AD%98%E6%A8%A1%E5%9E%8B%E7%9A%84%E6%8A%BD%E8%B1%A1%E7%BB%93%E6%9E%84%E7%A4%BA%E6%84%8F%E5%9B%BE.jpg" alt="内存模型的抽象结构示意图"></p>
-<p>如上图所示，如果<strong>线程A与线程B之间要通信的话，必须要经历下面2个步骤</strong></p>
-<ol>
-<li>线程A把本地内存A中更新过的共享变量刷新到主内存中去。</li>
-<li>线程B到主内存中去读取线程A之前已更新过的共享变量。</li>
-</ol>
-<p>通过下图示意图来说明这两个步骤：</p>
-<p><img src="/2024/10/05/%E3%80%90Java%E5%B9%B6%E5%8F%91%E7%BC%96%E7%A8%8B%E7%9A%84%E8%89%BA%E6%9C%AF3%E3%80%91Java%E5%86%85%E5%AD%98%E6%A8%A1%E5%9E%8B%EF%BC%88%E4%B8%8A%EF%BC%89/%E7%BA%BF%E7%A8%8B%E4%B9%8B%E9%97%B4%E7%9A%84%E9%80%9A%E4%BF%A1%E5%9B%BE.jpg" alt="线程之间的通信图"></p>
-<p>本地内存A和本地内存B由主内存中共享变量x的副本。假设初始时，这三个内存中的x值都是0。线程A在执行时，把更新后的x值（假设值为1）临时存放在自己的本地内存A中。当线程A和线程B需要通信时，线程A首先会把自己本地内存中修改后的x值刷新到主内存中，此时主内存中的x值变为了1。随后，线程B到主内存中去读取线程A更新后的x值，此时线程B的本地内存的x值也变为了1。</p>
-<p>JMM通过控制主内存与每个线程的本地内存之间的交互，来为Java程序员提供内存可见性保证。</p>
-<h3 id="并发编程模型的分类"><a href="#并发编程模型的分类" class="headerlink" title="并发编程模型的分类"></a>并发编程模型的分类</h3><p>现代的处理器<strong>使用写缓冲区临时保存向内存写入的数据</strong>。写缓冲区可以保证指令流水线持续运行，它可以<strong>避免由于处理器停顿下来等待向内存写入数据而产生的延迟</strong>。同时，通过<strong>以批处理的方式刷新写缓冲区，以及合并写缓冲区中对同一内存地址的多次写，减少对内存总线的占用。</strong></p>
-<p>虽然写缓冲区有这么多好处，但每个处理器上的写缓冲区，仅仅对它所在的处理器可见。这个特性会对内存操作的执行顺序产生重要的影响：<strong>处理器对内存的读&#x2F;写操作的执行顺序，不一定与内存实际发生的读&#x2F;写顺序一致。</strong></p>
-<p>为了具体说明，请看下表</p>
-<table>
-<thead>
-<tr>
-<th align="center">Process A</th>
-<th align="center">Process B</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="center">a &#x3D; 1; &#x2F;&#x2F; A1<br>x &#x3D; b; &#x2F;&#x2F;A2</td>
-<td align="center">b &#x3D; 2; &#x2F;&#x2F;B1<br>y &#x3D; a; &#x2F;&#x2F;B2</td>
-</tr>
-</tbody></table>
-<p>初始状态：a &#x3D; b &#x3D; 0;。处理器允许执行后得到结果：x &#x3D; y &#x3D; 0;</p>
-<p>假设处理器A和处理器B按程序的顺序并行执行内存访问，最终可能得到x &#x3D; y &#x3D; 0的结果。具体原因如下所示：</p>
-<p><img src="/2024/10/05/%E3%80%90Java%E5%B9%B6%E5%8F%91%E7%BC%96%E7%A8%8B%E7%9A%84%E8%89%BA%E6%9C%AF3%E3%80%91Java%E5%86%85%E5%AD%98%E6%A8%A1%E5%9E%8B%EF%BC%88%E4%B8%8A%EF%BC%89/%E5%A4%84%E7%90%86%E5%99%A8%E5%92%8C%E5%86%85%E5%AD%98%E7%9A%84%E4%BA%A4%E4%BA%92.jpg" alt="处理器和内存的交互"></p>
-<p>这里处理器A和处理器B可以同时把共享变量写入自己的写缓冲区（A1,B1），然后从内存中读取另一个共享变量（A2,B2），最后才把自己写缓存区中保存的脏数据刷新到内存中（A3,B3）。</p>
-<p>为了保存内存可见性，Java编译器在生成指令序列的适当位置会插入内存屏障指令来禁止特定类型的处理器重排序。</p>
-<table>
-<thead>
-<tr>
-<th align="center">屏障类型</th>
-<th align="center">指令示例</th>
-<th align="center">说明</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="center">LoadLoad Barries</td>
-<td align="center">Load1; LoadLoad; Load2</td>
-<td align="center">确保Load1数据的装载先于Load2及所有后续装载指令的装载。</td>
-</tr>
-<tr>
-<td align="center">StoreStore Barries</td>
-<td align="center">Store1; StoreStore; Store2</td>
-<td align="center">确保Store1数据对其他处理器可见（刷新到内存）先于Store2及所有后续存储指令的存储。</td>
-</tr>
-<tr>
-<td align="center">LoadStore Barries</td>
-<td align="center">Load1; LoadStore; Store2</td>
-<td align="center">确保Load1数据装载先于Store2及所有后续的存储指令刷新到内存。</td>
-</tr>
-<tr>
-<td align="center">StoreLoad Barries</td>
-<td align="center">Store1; StoreLoad; Load2</td>
-<td align="center">确保Store1数据对其他处理器变得可见（刷新到内存）先于Load2及所有后续装载指令的装载。</td>
-</tr>
-</tbody></table>
-<h3 id="happens-before简介"><a href="#happens-before简介" class="headerlink" title="happens-before简介"></a>happens-before简介</h3><p>与程序员密切相关的happens-before规则如下;</p>
-<ul>
-<li>程序顺序规则：一个线程中的每个操作，happens-before于该线程中的任意后续操作。</li>
-<li>监视器锁规则：对一个锁的解锁，happens-before于随后对这个锁的加锁。</li>
-<li>volatile变量规则：对一个volatile域的写，happens-before于任意后续对这个volatile域的读。</li>
-<li>传递性：如果A happens-before B，且B happens-before C，那么A happens-before C。</li>
-</ul>
-
+          <h2 id="前言"><a href="#前言" class="headerlink" title="前言"></a>前言</h2><p>这篇文章主要介绍内存模型的基本概念</p>
+          <!--noindex-->
+            <div class="post-button">
+              <a class="btn" href="/2024/10/05/%E3%80%90Java%E5%B9%B6%E5%8F%91%E7%BC%96%E7%A8%8B%E7%9A%84%E8%89%BA%E6%9C%AF3%E3%80%91Java%E5%86%85%E5%AD%98%E6%A8%A1%E5%9E%8B%EF%BC%88%E4%B8%8A%EF%BC%89/#more" rel="contents">
+                Read more &raquo;
+              </a>
+            </div>
+          <!--/noindex-->
+        
       
     </div>
 
@@ -996,9 +647,15 @@
         <i class="far fa-calendar"></i>
       </span>
       <span class="post-meta-item-text">Posted on</span>
-      
 
-      <time title="Created: 2024-10-03 22:50:06 / Modified: 23:49:11" itemprop="dateCreated datePublished" datetime="2024-10-03T22:50:06+08:00">2024-10-03</time>
+      <time title="Created: 2024-10-03 22:50:06" itemprop="dateCreated datePublished" datetime="2024-10-03T22:50:06+08:00">2024-10-03</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">Edited on</span>
+      <time title="Modified: 2024-11-03 17:15:50" itemprop="dateModified" datetime="2024-11-03T17:15:50+08:00">2024-11-03</time>
     </span>
     <span class="post-meta-item">
       <span class="post-meta-item-icon">
@@ -1020,88 +677,15 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h2 id="全局锁"><a href="#全局锁" class="headerlink" title="全局锁"></a>全局锁</h2><p>顾名思义，<strong>全局锁就是对整个数据库实例加锁</strong>。MySQL提供了一个对全局读锁的方法，命令是<code>Flush tables with read lock (FTWRL)</code> 当需要让整个库处于只读状态的时候，可以使用这个命令，<strong>之后其他线程的以下语句会被阻塞：数据更新语句（数据的增删改）、数据定义语句（包括建表、修改表结构等）和更新类事务的提交语句。</strong></p>
-<p>全局锁的典型使用场景是，<strong>做全库逻辑备份</strong>，也就是把整库每个表都select出来存成文本。</p>
-<p>通过FTWRL确保不会有其他线程对数据库做更新，然后对整个库做备份。注意，在<strong>备份过程中整个库完全处于只读状态</strong>。</p>
-<p>但是让整库都只读，听上去很危险;</p>
-<ul>
-<li>如果在主库上备份，那么备份期间都不能执行更新，业务基本停摆</li>
-<li>如果在从库上备份，那么备份期间从库不能执行主库同步过来的binlog，导致主从延迟。</li>
-</ul>
-<p>上述两种危险显然是不好的，那么，为什么要加全局锁呢？可以试想一下，不加全局锁会出现什么问题。</p>
-<p>假设需要维护一个购买系统，关注的是用户账户余额表和用户课程表。</p>
-<p>现在发起一个备份逻辑，假设备份期间，有个用户购买了一门课程，业务逻辑里就要扣掉对应的余额，然后往已购课程里面加一门课。</p>
-<p>如果时间顺序上是先备份账户余额表，然后用户购买，然后备份用户课程表，会出现下图所示的情况：</p>
-<p><img src="/2024/10/03/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B26%E3%80%91%E5%85%A8%E5%B1%80%E9%94%81%E5%92%8C%E8%A1%A8%E9%94%81/%E4%B8%9A%E5%8A%A1%E5%92%8C%E7%8A%B6%E6%80%81%E5%A4%87%E4%BB%BD%E5%9B%BE.jpg" alt="业务和状态备份图"></p>
-<p>可以看到，这个备份结果里，用户A的数据状态是“账户余额没扣，但是用户课程表里面已经多了一门课”。如果后面用这个备份来恢复数据的话，用户A就发现，自己赚了。</p>
-<p>同理，如果备份表的顺序反过来，先备份用户课程表，再备份账户余额表，用户就白亏钱了。</p>
-<p>也就是说，<strong>不加锁的话，备份系统备份的得到的库不是一个逻辑时间点</strong>。</p>
-<h2 id="表级锁"><a href="#表级锁" class="headerlink" title="表级锁"></a>表级锁</h2><p>MySQL 里面表级别的锁有两种：一种是<strong>表锁</strong>，一种是<strong>元数据锁</strong>（meta data lock，MDL)。</p>
-<p>表锁的语法是 <code>lock tables … read/write</code>。与 <code>FTWRL</code> 类似，可以用 <code>unlock tables</code> 主动释放锁，也可以在客户端断开的时候自动释放。需要注意，<code>lock tables</code> 语法除了会限制别的线程的读写外，也限定了本线程接下来的操作对象。</p>
-<p>举个例子, 如果在某个线程 A 中执行 <code>lock tables t1 read, t2 write;</code> 这个语句，则其他线程写 t1、读写 t2 的语句都会被阻塞。同时，线程 A 在执行 <code>unlock tables</code> 之前，也只能执行读 t1、读写 t2 的操作。连写 t1 都不允许，自然也不能访问其他表。</p>
-<p>在还没有出现更细粒度的锁的时候，表锁是最常用的处理并发的方式。而对于 InnoDB 这种支持行锁的引擎，一般不使用 <code>lock tables</code> 命令来控制并发，毕竟锁住整个表的影响面还是太大。</p>
-<p>另一类表级的锁是 MDL（metadata lock)。MDL 不需要显式使用，在访问一个表的时候会被自动加上。MDL 的作用是，保证读写的正确性。你可以想象一下，如果一个查询正在遍历一个表中的数据，而执行期间另一个线程对这个表结构做变更，删了一列，那么查询线程拿到的结果跟表结构对不上，肯定是不行的。</p>
-<p>因此，在 MySQL 5.5 版本中引入了 MDL，当对一个表做增删改查操作的时候，加 MDL 读锁；当要对表做结构变更操作的时候，加 MDL 写锁。</p>
-<ul>
-<li>读锁之间不互斥，因此你可以有多个线程同时对一张表增删改查。</li>
-<li>读写锁之间、写锁之间是互斥的，用来保证变更表结构操作的安全性。因此，如果有两个线程要同时给一个表加字段，其中一个要等另一个执行完才能开始执行。</li>
-</ul>
-<p>虽然 MDL 锁是系统默认会加的，但却是你不能忽略的一个机制。比如下面这个例子，我经常看到有人掉到这个坑里：给一个小表加个字段，导致整个库挂了。</p>
-<p>给一个表加字段，或者修改字段，或者加索引，需要扫描全表的数据。在对大表操作的时候，你肯定会特别小心，以免对线上服务造成影响。而实际上，即使是小表，操作不慎也会出问题。我们来看一下下面的操作序列，假设表 t 是一个小表。</p>
-<table>
-<thead>
-<tr>
-<th></th>
-<th>Session A</th>
-<th>Session B</th>
-<th>Session C</th>
-<th>Session D</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><strong>Step 1</strong></td>
-<td><code>begin;</code></td>
-<td></td>
-<td></td>
-<td></td>
-</tr>
-<tr>
-<td><strong>Step 2</strong></td>
-<td><code>select * from t limit 1;</code></td>
-<td></td>
-<td></td>
-<td></td>
-</tr>
-<tr>
-<td><strong>Step 3</strong></td>
-<td></td>
-<td><code>select * from t limit 1;</code></td>
-<td></td>
-<td></td>
-</tr>
-<tr>
-<td><strong>Step 4</strong></td>
-<td></td>
-<td></td>
-<td><code>alter table t add f int; (blocked)</code></td>
-<td></td>
-</tr>
-<tr>
-<td><strong>Step 5</strong></td>
-<td></td>
-<td></td>
-<td></td>
-<td><code>select * from t limit 1; (blocked)</code></td>
-</tr>
-</tbody></table>
-<p>我们可以看到 session A 先启动，这时候会对表 t 加一个 MDL 读锁。由于 session B 需要的也是 MDL 读锁，因此可以正常执行。</p>
-<p>之后 session C 会被 blocked，是因为 session A 的 MDL 读锁还没有释放，而 session C 需要 MDL 写锁，因此只能被阻塞。</p>
-<p>如果只有 session C 自己被阻塞还没什么关系，但是之后所有要在表 t 上新申请 MDL 读锁的请求也会被 session C 阻塞。前面我们说了，所有对表的增删改查操作都需要先申请 MDL 读锁，就都被锁住，等于这个表现在完全不可读写了。</p>
-<p>如果某个表上的查询语句频繁，而且客户端有重试机制，也就是说超时后会再起一个新 session 再请求的话，这个库的线程很快就会爆满。</p>
-<p>那么，如何安全地给小表加字段？</p>
-<p><strong>首先要解决长事务，事务不提交，就会一直占着 MDL 锁</strong>。在 MySQL 的 <code>information_schema</code> 库的 <code>innodb_trx</code> 表中，你可以查到当前执行中的事务。如果你要做 DDL 变更的表刚好有长事务在执行，要考虑先暂停 DDL，或者 kill 掉这个长事务。</p>
-<p>但考虑一下这个场景。<strong>如果要变更的表是一个热点表</strong>，虽然数据量不大，但是上面的请求很频繁，而不得不加个字段，该怎么做呢？这时候 kill 可能未必管用，因为新的请求马上就来了。比较理想的机制是，在 <code>alter table</code> 语句里面<strong>设定等待时间，如果在这个指定的等待时间里面能够拿到 MDL 写锁最好，拿不到也不要阻塞后面的业务语句，先放弃。</strong>之后开发人员或者 DBA 再通过重试命令重复这个过程。</p>
-
+          <h2 id="前言"><a href="#前言" class="headerlink" title="前言"></a>前言</h2><p>MySQL 的锁。数据库锁设计的初衷是处理并发问题。作为多用户共享的资源，当出现并发访问的时候，数据库需要合理地控制资源的访问规则。而锁就是用来实现这些访问规则的重要数据结构。</p>
+          <!--noindex-->
+            <div class="post-button">
+              <a class="btn" href="/2024/10/03/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B26%E3%80%91%E5%85%A8%E5%B1%80%E9%94%81%E5%92%8C%E8%A1%A8%E9%94%81/#more" rel="contents">
+                Read more &raquo;
+              </a>
+            </div>
+          <!--/noindex-->
+        
       
     </div>
 
@@ -1163,7 +747,7 @@
         <i class="far fa-calendar-check"></i>
       </span>
       <span class="post-meta-item-text">Edited on</span>
-      <time title="Modified: 2024-10-07 20:35:17" itemprop="dateModified" datetime="2024-10-07T20:35:17+08:00">2024-10-07</time>
+      <time title="Modified: 2024-11-03 17:15:47" itemprop="dateModified" datetime="2024-11-03T17:15:47+08:00">2024-11-03</time>
     </span>
     <span class="post-meta-item">
       <span class="post-meta-item-icon">
@@ -1185,71 +769,15 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h2 id="索引的定义"><a href="#索引的定义" class="headerlink" title="索引的定义"></a>索引的定义</h2><p>索引的出现其实就是为了<strong>提高数据查询的效率</strong>，就像书的<strong>目录</strong>一样。一本500页的书，如果你想快速找到其中的某一个知识点，在不借助目录的情况下，那寻找起来是很费劲的。同样，对于数据库的表而言，索引其实就是它的“目录”。</p>
-<h2 id="索引的常见模型"><a href="#索引的常见模型" class="headerlink" title="索引的常见模型"></a>索引的常见模型</h2><h3 id="哈希表"><a href="#哈希表" class="headerlink" title="哈希表"></a>哈希表</h3><p>哈希表是一种以<strong>键 - 值（key - value）</strong>存储数据的结构，只要输入待查找的键即key，就可以找到其对应的值即Value。哈希的思路很简单，把值放在数组里，用一个哈希函数把key换算成一个确定的位置，然后把value放在数组的这个位置。</p>
-<p>不可避免地，<strong>多个key值经过哈希函数的换算，会出现同一个值的情况</strong>。处理这种情况的一种方法是，<strong>拉出一个链表</strong>。</p>
-<p>假设，现在维护者一个身份证信息和姓名的表，需要根据身份证号查找对应的名字，这是对应的哈希表索引的示意图如下：</p>
-<p><img src="/2024/09/27/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B24-5%E3%80%91%E7%B4%A2%E5%BC%95/%E5%93%88%E5%B8%8C%E8%A1%A8%E7%B4%A2%E5%BC%95.jpg" alt="哈希表索引"></p>
-<p>图中，USER2和USER4根据身份证号算出来的值都是N，但没关系，后面还跟了一个链表。假设要查找ID_2对应的名字，处理步骤就是首先，将ID_2通过哈希函数算出N；然后，按顺序遍历，找到USER2。</p>
-<p>需要注意的是，图中四个ID_N的值并不是递增的，这样做的好处是增加新的User时速度会很快，只需要往后追加。但缺点是，因为不是有序的，所以哈希索引做区间查询速度很慢，要全表扫描。</p>
-<p>所以，哈希表这种结构适用于<strong>只有等值查询</strong>的场景，比如<strong>Memcached以及其他一些NoSQL引擎</strong>。</p>
-<h3 id="有序数组"><a href="#有序数组" class="headerlink" title="有序数组"></a>有序数组</h3><p>有序数组在<strong>等值查询和范围查询场景中的性能就都非常优秀</strong>。还是这个根据身份证查名字的例子，如果使用有序数组来实现的话，示意图如下所示：</p>
-<p><img src="/2024/09/27/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B24-5%E3%80%91%E7%B4%A2%E5%BC%95/%E6%9C%89%E5%BA%8F%E6%95%B0%E7%BB%84%E7%B4%A2%E5%BC%95.jpg" alt="有序数组索引"></p>
-<p>假设身份证号没有重复，这个数组就是按照身份证号递增的顺序保存的。这个时候如果要查ID_2对应的名字，用二分法就可以快速得到，这个<strong>时间复杂度是O(log(N))</strong></p>
-<p>如果仅仅看查询效率，有序数组就是最好的数据机构了。但是，<strong>在需要更新数据的时候就麻烦了，往中间插入一个记录就必须得挪动后面所有的记录，成本太高。</strong></p>
-<p>所以，有序数组索引<strong>只适用于静态存储引擎</strong>，比如你要保存的是某一年某个城市的所有人口信息，这类不会再修改的数据。</p>
-<h3 id="二叉搜索树"><a href="#二叉搜索树" class="headerlink" title="二叉搜索树"></a>二叉搜索树</h3><p><img src="/2024/09/27/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B24-5%E3%80%91%E7%B4%A2%E5%BC%95/%E4%BA%8C%E5%8F%89%E6%90%9C%E7%B4%A2%E6%A0%91%E7%B4%A2%E5%BC%95.jpg" alt="二叉搜索树索引"></p>
-<p>二叉搜索树的特点是：父节点左子树左右节点的值小于父节点的值，右子树所有节点的值大于父节点的值。这样如果要查询ID_2的话，按照图中的搜索顺序就是按照USER_A -&gt; USER_C -&gt; USER_F -&gt; USER_2这个路径得到，时间复杂度是O(log(N)).</p>
-<h2 id="InnoDB的索引模型"><a href="#InnoDB的索引模型" class="headerlink" title="InnoDB的索引模型"></a>InnoDB的索引模型</h2><p>在InnoDB中，表都是根据主键顺序以索引的形式存放的，这种存储方式的表称为索引组织表。又因为前面我们提到的，<strong>InnoDB使用B+树索引模型</strong>，所以数据都是存储在B+树中的。</p>
-<p>每一个索引在InnoDB里面对应一颗B+树。</p>
-<p>假设，我们有一个主键列为ID的表，表中又字段k，并且k上有索引。</p>
-<p>表中 R1~R5 的 (ID,k) 值分别为 (100,1)、(200,2)、(300,3)、(500,5) 和 (600,6)，两棵树的示例示意图如下。</p>
-<p><img src="/2024/09/27/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B24-5%E3%80%91%E7%B4%A2%E5%BC%95/InnoDB%E7%B4%A2%E5%BC%95%E7%BB%84%E7%BB%87%E7%BB%93%E6%9E%84.jpg" alt="InnoDB索引组织结构"></p>
-<p>从图中不难看出，根据叶子节点的内容，索引类型分为<strong>主键索引和非主键索引</strong>。</p>
-<p>主键索引（也称为<strong>聚簇索引</strong>），叶子节点存的是整行数据。非主键索引（也称为<strong>二级索引</strong>），叶子节点内容是主键的值。</p>
-<p>主键索引和普通索引查询的区别;</p>
-<ul>
-<li>如果语句是 select * from T where ID&#x3D;500，即主键查询方式，则只需要搜索 ID 这棵 B+ 树；</li>
-<li>如果语句是 select * from T where k&#x3D;5，即普通索引查询方式，则需要先搜索 k 索引树，得到 ID 的值为 500，再到 ID 索引树搜索一次。这个过程称为回表。</li>
-</ul>
-<h2 id="索引维护"><a href="#索引维护" class="headerlink" title="索引维护"></a>索引维护</h2><p>InnoDB的索引是以B+树的形式构建的，而且<strong>B+树的节点都是一个数据页</strong>。B+ 树为了维护索引有序性，在插入新值的时候需要做必要的维护，也就是<strong>节点分裂和节点合并</strong>。因为我们是以数据页为基本单位构造的B+树，那么<strong>B+树的节点分裂和节点合并就会造成数据页的页分裂和页合并。</strong></p>
-<h3 id="页分裂"><a href="#页分裂" class="headerlink" title="页分裂"></a>页分裂</h3><p>假如，现在我们插入一个新的一条记录，他的索引值是 3，那么他就要按照顺序插入到页 20 中，在索引值为 1,2 的记录的后面。而如果这个索引页已经满了，那么就需要触发一次页分裂。</p>
-<p>页分裂是指将该页面中的一部分索引记录移动到一个新的页面中，从而为新记录腾出空间。这样可以保持 B+树的平衡和性能。<br><img src="/2024/09/27/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B24-5%E3%80%91%E7%B4%A2%E5%BC%95/%E9%A1%B5%E5%88%86%E8%A3%82.jpg" alt="页分裂"></p>
-<p>当我们插入一组无序的数据的时候，那么就可能导致多次的页分裂的情况。<br>而且某些情况下，可能会从叶子节点一路分裂到根节点（B+树的非叶子节点也存储数据，也可能分裂）。</p>
-<h3 id="页合并"><a href="#页合并" class="headerlink" title="页合并"></a>页合并</h3><p>既然会有页分裂那么就会有页合并。<br>页分裂发生在插入阶段，那么页合并就是发生在删除阶段。<br>当我们删除索引下的数据的时候，叶子节点的数据就会变得比较稀疏，此时 B+树就会触发合并操作。</p>
-<p><img src="/2024/09/27/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B24-5%E3%80%91%E7%B4%A2%E5%BC%95/%E9%A1%B5%E5%90%88%E5%B9%B6.jpg" alt="页合并"></p>
-<h3 id="页分裂和页合并的影响"><a href="#页分裂和页合并的影响" class="headerlink" title="页分裂和页合并的影响"></a>页分裂和页合并的影响</h3><ol>
-<li>页分裂和合并是涉及大量数据移动和重组的操作。<strong>频繁进行这些操作会增加数据库的&#x2F;O 负担和 CPU 消耗</strong>，影响数据库的整体性能。</li>
-<li>分裂和合并可能导致 <strong>B+树索引结构频繁调整</strong>，这个过程也会影响插入及删除操作的性能。</li>
-<li>频繁的页分裂和合并可能会导致磁盘上存在较多的空间碎片，新分出的一个页一般会有很多空闲空间，使得数据库表占用更多的磁盘空间，而导致浪费。</li>
-</ol>
-<h3 id="避免页分裂"><a href="#避免页分裂" class="headerlink" title="避免页分裂"></a>避免页分裂</h3><ol>
-<li>设置主键的时候尽量选择能够自增的字段</li>
-<li>不要使用varchar类型作为ID主键</li>
-<li>在生产全局唯一ID的时候尽量不要使用UUID，UUID不是自增的。</li>
-</ol>
-<h2 id="覆盖索引"><a href="#覆盖索引" class="headerlink" title="覆盖索引"></a>覆盖索引</h2><p><img src="/2024/09/27/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B24-5%E3%80%91%E7%B4%A2%E5%BC%95/InnoDB%E7%B4%A2%E5%BC%95%E7%BB%84%E7%BB%87%E7%BB%93%E6%9E%84.jpg" alt="InnoDB索引组织结构"></p>
-<p>回到这张图，对于有上述两个索引的表T来说，执行sql语句<code>select * from T where k between 3 and 5</code>，执行流程如下：</p>
-<ol>
-<li>在k索引树上找到k&#x3D;3的记录吗，取得ID&#x3D;300；</li>
-<li>再到ID索引树查到ID&#x3D;300对应的R3;</li>
-<li>在k索引树取下一个值k&#x3D;5，取得ID&#x3D;500;</li>
-<li>再回到ID索引树查到ID&#x3D;500对应的R4；</li>
-<li>在k索引树取下一个值k&#x3D;6，不满足条件，循环结束</li>
-</ol>
-<p>在这个过程中，<strong>回到主键索引树搜索的过程，称为回表</strong>。</p>
-<p>如果执行的语句是 <code>select ID from T where k between 3 and 5</code>，这时只需要查 ID 的值，而 ID 的值已经在 k 索引树上了，因此可以直接提供查询结果，不需要回表。也就是说，<strong>在这个查询里面，索引 k 已经“覆盖了”我们的查询需求，我们称为覆盖索引</strong>。由于覆盖索引可以减少树的搜索次数，显著提升查询性能，所以使用覆盖索引是一个常用的性能优化手段。</p>
-<h2 id="最左前缀原则"><a href="#最左前缀原则" class="headerlink" title="最左前缀原则"></a>最左前缀原则</h2><p>B+ 树这种索引结构，可以利用索引的“最左前缀”，来定位记录。</p>
-<p>不只是索引的全部定义，只要满足最左前缀，就可以利用索引来加速检索。<strong>这个最左前缀可以是联合索引的最左 N 个字段，也可以是字符串索引的最左 M 个字符。</strong></p>
-<p>在建立联合索引的时候，如何安排索引内的字段顺序。这里我们的评估标准是，索引的复用能力。因为可以支持最左前缀，所以当已经有了 (a,b) 这个联合索引后，一般就不需要单独在 a 上建立索引了。因此，<strong>第一原则是，如果通过调整顺序，可以少维护一个索引，那么这个顺序往往就是需要优先考虑采用的。</strong></p>
-<p>如果既有联合查询，又有基于 a、b 各自的查询呢？<strong>查询条件里面只有 b 的语句，是无法使用 (a,b) 这个联合索引的，这时候不得不维护另外一个索引，也就是说需要同时维护 (a,b)、(b) 这两个索引。</strong></p>
-<h2 id="索引下推"><a href="#索引下推" class="headerlink" title="索引下推"></a>索引下推</h2><p>现在我们知道，对于联合索引（a, b），在执行 <code>select * from table where a &gt; 1 and b = 2</code> 语句的时候，只有 a 字段能用到索引，那在联合索引的 B+Tree 找到第一个满足条件的主键值（ID 为 2）后，还需要判断其他条件是否满足（看 b 是否等于 2），那是在联合索引里判断？还是回主键索引去判断呢？</p>
-<ul>
-<li>在 MySQL 5.6 之前，只能从 ID2 （主键值）开始一个个回表，到「主键索引」上找出数据行，再对比 b 字段值。</li>
-<li>而 MySQL 5.6 引入的<strong>索引下推优化</strong>（index condition pushdown)， <strong>可以在联合索引遍历过程中，对联合索引中包含的字段先做判断，直接过滤掉不满足条件的记录，减少回表次数</strong>。</li>
-</ul>
-<p>​	</p>
-
+          <h2 id="前言"><a href="#前言" class="headerlink" title="前言"></a>前言</h2><p>到底什么是索引，索引又是如何工作的呢？</p>
+          <!--noindex-->
+            <div class="post-button">
+              <a class="btn" href="/2024/09/27/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B24-5%E3%80%91%E7%B4%A2%E5%BC%95/#more" rel="contents">
+                Read more &raquo;
+              </a>
+            </div>
+          <!--/noindex-->
+        
       
     </div>
 
@@ -1311,7 +839,7 @@
         <i class="far fa-calendar-check"></i>
       </span>
       <span class="post-meta-item-text">Edited on</span>
-      <time title="Modified: 2024-10-07 20:25:23" itemprop="dateModified" datetime="2024-10-07T20:25:23+08:00">2024-10-07</time>
+      <time title="Modified: 2024-11-03 17:18:13" itemprop="dateModified" datetime="2024-11-03T17:18:13+08:00">2024-11-03</time>
     </span>
     <span class="post-meta-item">
       <span class="post-meta-item-icon">
@@ -1333,75 +861,15 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h2 id="事务"><a href="#事务" class="headerlink" title="事务"></a>事务</h2><p>事务就是要保证一组数据库操作，<strong>要么全部成功，要么全部失败</strong>。在MySQL中，事务支持是在引擎层实现的。MySQL是一个支持多引擎的系统，但并不是所有的引擎都支持事务。比如MySQL原生的MyISAM引擎就不支持事务，这也是MyISAM被InnoDB取代的重要原因之一。</p>
-<h3 id="事务四大特性（ACID）"><a href="#事务四大特性（ACID）" class="headerlink" title="事务四大特性（ACID）"></a>事务四大特性（ACID）</h3><ul>
-<li><strong>原子性（Atomicity）</strong>：事务被视为不可分割的最小单元，事务的所有操作要么全部提交成功，要么全部失败回滚。</li>
-<li><strong>一致性（Consistency）</strong>：数据在事务执行前后保持一致。</li>
-<li><strong>隔离性（Isolation）</strong>：一个事务所做的修改在最终提交以前，对其他事务是不可见的。</li>
-<li><strong>持久性（Durability）</strong>：一旦事务提交，则其所做的修改将会永远保存在数据库中。即使系统发生崩溃，事务执行的结果也不能丢失。</li>
-</ul>
-<h2 id="隔离级别"><a href="#隔离级别" class="headerlink" title="隔离级别"></a>隔离级别</h2><p>当数据库上有多个事务同时执行的时候，就可能出现<strong>脏读（dirty read）</strong>、<strong>不可重复读（nonrepeatable read）</strong>、<strong>幻读（phantom read）</strong>的问题，为了解决这些问题，就有了隔离级别的概念。</p>
-<p>隔离得越严实，效率就会越低。</p>
-<p>SQL标准的事务隔离级别包括：</p>
-<ul>
-<li><strong>读未提交（read uncommited）</strong>：一个事务还没提交时，它做的变更就能被别的事务看到。</li>
-<li><strong>读提交（read commited）</strong>：一个事务提交之后，它做的变更才会被其他事务看到。</li>
-<li><strong>可重复读（repeatable read）</strong>：一个事务执行过程中看到的数据，总是跟这个事务启动时看到的数据是一致的。在可重复读隔离级别下，未提交变更对其他事务也是不可见的。</li>
-<li><strong>串行化（serializable）</strong>：对于同一行记录，“写”会加“写锁”，“读”会加“读锁”。当出现读写锁冲突的时候，后访问的事务必须等前一个事务执行完成，才能继续执行。</li>
-</ul>
-<p>通过下面的案例来理解四种隔离级别：</p>
-<table>
-<thead>
-<tr>
-<th align="center">事务A</th>
-<th align="center">事务B</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="center">启动事务查询得到值1</td>
-<td align="center">启动事务</td>
-</tr>
-<tr>
-<td align="center"></td>
-<td align="center">查询得到值1</td>
-</tr>
-<tr>
-<td align="center"></td>
-<td align="center">将1改成2</td>
-</tr>
-<tr>
-<td align="center">查询得到值V1</td>
-<td align="center"></td>
-</tr>
-<tr>
-<td align="center"></td>
-<td align="center">提交事务B</td>
-</tr>
-<tr>
-<td align="center">查询得到值V2</td>
-<td align="center"></td>
-</tr>
-<tr>
-<td align="center">提交事务A</td>
-<td align="center"></td>
-</tr>
-<tr>
-<td align="center">查询得到值V3</td>
-<td align="center"></td>
-</tr>
-</tbody></table>
-<ul>
-<li><strong>隔离级别是“读未提交”</strong>：则V1的值为2。这时候事务 B 虽然还没有提交，但是结果已经被 A 看到了。因此，V2、V3 也都是 2。</li>
-<li><strong>隔离级别是“读提交”</strong>：则 V1 是 1，V2 的值是 2。事务 B 的更新在提交后才能被 A 看到。所以， V3 的值也是 2。</li>
-<li><strong>隔离级别是“可重复读”</strong>：则 V1、V2 是 1，V3 是 2。之所以 V2 还是 1，遵循的就是这个要求：事务在执行期间看到的数据前后必须是一致的。</li>
-<li><strong>隔离级别是“串行化”</strong>：则在事务 B 执行“将 1 改成 2”的时候，会被锁住。直到事务 A 提交后，事务 B 才可以继续执行。所以从 A 的角度看， V1、V2 值是 1，V3 的值是 2。</li>
-</ul>
-<h3 id="可重复读的使用场景"><a href="#可重复读的使用场景" class="headerlink" title="可重复读的使用场景"></a>可重复读的使用场景</h3><p>假设你在管理一个个人银行账户表。一个表存了账户余额，一个表存了账单明细。到了月底你要做数据校对，也就是判断上个月的余额和当前余额的差额，是否与本月的账单明细一致。你一定希望在校对过程中，即使有用户发生了一笔新的交易，也不影响你的校对结果。</p>
-<h3 id="可重复读隔离级别的实现"><a href="#可重复读隔离级别的实现" class="headerlink" title="可重复读隔离级别的实现"></a>可重复读隔离级别的实现</h3><p>在 MySQL 中，实际上每条记录在更新的时候都会同时记录一条回滚操作。记录上的最新值，通过回滚操作，都可以得到前一个状态的值。</p>
-<p>假设一个值从A被顺序改变成了B、C、D，在回滚日志里面会有类似下面的记录。</p>
-<p><img src="/2024/09/23/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B23%E3%80%91%E4%BA%8B%E5%8A%A1%E9%9A%94%E7%A6%BB/MVCC.jpg" alt="MVCC"></p>
-<p>当前值是 D，但是在查询这条记录的时候，不同时刻启动的事务会有不同的 readview。如图中看到的，在视图 1、2、3 里面，这一个记录的值分别是 A、B、D，同一条记录在系统中可以存在多个版本，就是数据库的多版本并发控制（MVCC）。对于 readview 1，要得到 A，就必须将当前值依次执行图中所有的回滚操作得到。同时你会发现，即使现在有另外一个事务正在将 D 改成 E，这个事务跟 readview 1、2、3 对应的事务是不会冲突的。</p>
-
+          <h2 id="前言"><a href="#前言" class="headerlink" title="前言"></a>前言</h2><p>事务就是要保证一组数据库操作，<strong>要么全部成功，要么全部失败</strong>。在MySQL中，事务支持是在引擎层实现的。MySQL是一个支持多引擎的系统，但并不是所有的引擎都支持事务。比如MySQL原生的MyISAM引擎就不支持事务，这也是MyISAM被InnoDB取代的重要原因之一。</p>
+          <!--noindex-->
+            <div class="post-button">
+              <a class="btn" href="/2024/09/23/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B23%E3%80%91%E4%BA%8B%E5%8A%A1%E9%9A%94%E7%A6%BB/#more" rel="contents">
+                Read more &raquo;
+              </a>
+            </div>
+          <!--/noindex-->
+        
       
     </div>
 
@@ -1463,7 +931,7 @@
         <i class="far fa-calendar-check"></i>
       </span>
       <span class="post-meta-item-text">Edited on</span>
-      <time title="Modified: 2024-10-05 00:11:53" itemprop="dateModified" datetime="2024-10-05T00:11:53+08:00">2024-10-05</time>
+      <time title="Modified: 2024-11-03 17:23:08" itemprop="dateModified" datetime="2024-11-03T17:23:08+08:00">2024-11-03</time>
     </span>
     <span class="post-meta-item">
       <span class="post-meta-item-icon">
@@ -1485,146 +953,15 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h2 id="volatile的应用"><a href="#volatile的应用" class="headerlink" title="volatile的应用"></a>volatile的应用</h2><p>volatile是轻量级的synchronized，它在多处理器开发中保证了共享变量的<strong>“可见性”</strong>（当一个线程修改一个共享变量时，另外一个线程能读到这个修改的值）。如果volatile变量修饰符使用恰当的话，它比synchronized的使用和执行成本更低，<strong>不会引起线程上下文的切换和调度</strong>。</p>
-<h3 id="volatile的定义与实现原理"><a href="#volatile的定义与实现原理" class="headerlink" title="volatile的定义与实现原理"></a>volatile的定义与实现原理</h3><p>Java编程语言允许线程访问共享变量，为了确保共享变量能被准确和一致地更新，线程应该确保通过排他锁单独获得这个变量。</p>
-<table>
-<thead>
-<tr>
-<th align="center">术语</th>
-<th align="center">英文单词</th>
-<th align="center">术语描述</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="center">内存屏障</td>
-<td align="center">memory barries</td>
-<td align="center">一组处理器指令，用于实现对内存的顺序限制</td>
-</tr>
-<tr>
-<td align="center">缓冲行</td>
-<td align="center">cache line</td>
-<td align="center">CPU高速缓存中可以分配的最小存储单位。处理器填写缓存行时会加载整个缓存行，现代CPU需要执行几百次CPU指令</td>
-</tr>
-<tr>
-<td align="center">原子操作</td>
-<td align="center">atomic operations</td>
-<td align="center">不可中断的一个或一系列操作</td>
-</tr>
-<tr>
-<td align="center">缓存行填充</td>
-<td align="center">cache line fill</td>
-<td align="center">当处理器识别到从内存中读取操作数是可缓存的，处理器读取整个高速缓存行到适当的缓存（L2,L3,L3的或所有）</td>
-</tr>
-<tr>
-<td align="center">写命中</td>
-<td align="center">write hit</td>
-<td align="center">当处理器将操作数写回到一个内存缓存的区域时，它会首先检查这个缓存的内存地址是否在缓存行中，如果存在一个有效的缓存行，则处理器将这个操作数写回到缓存，而不是写回到内存，这个操作被称为写命中。</td>
-</tr>
-<tr>
-<td align="center">写缺失</td>
-<td align="center">write misses the cache</td>
-<td align="center">一个有效的缓存行被写入到不存在的内存区域</td>
-</tr>
-</tbody></table>
-<p>通过X86处理器下通过工具获取JIT编译器生成的汇编指令来查看对volatile进行写操作时，CPU会进行什么处理</p>
-<p>Java代码如下：</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">instance = <span class="keyword">new</span> <span class="title class_">Singleton</span>(); <span class="comment">// instance是volatile变量</span></span><br></pre></td></tr></table></figure>
-
-<p>转变成汇编代码，如下：</p>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">0x01a3de1d: movb $0x0,0x1104800(%esi);0x01a3de24: lock add1 &amp;0x0, (%esp);</span><br></pre></td></tr></table></figure>
-
-<p>有volatile变量修饰的共享变量进行写操作的时候会多出第二行汇编代码，Lock前缀的指令在多核处理器下会引发两件事情：</p>
-<ol>
-<li><strong>将当前处理器缓存行的数据写回到系统内存。</strong></li>
-<li><strong>这个写回内存的操作会使在其他CPU里缓存了该内存地址的数据无效。</strong></li>
-</ol>
-<p>为了提高处理速度，处理器不直接和内存进行通信，而是先将系统内存的数据读到内部缓存（L1，L2或其他）后再进行处理，但操作完不知道何时会写到内存。</p>
-<p>如果对声明了<strong>volatile的变量进行写操作</strong>，JVM就会向处理器发送一条<strong>Lock前缀</strong>的指令，<strong>将这个变量所在缓存行的数据写回到系统内存</strong>。但是，就算写回到内存，如果其他处理器缓存的值还是旧的，再执行计算操作就会有问题。所以在多处理器下，<strong>为了保证各个处理器的缓存是一致的，就会实现缓存一致性协议，每个处理器通过嗅探在总线上传播的数据来检查自己缓存的值是不是过期了，当处理器发现自己缓存行对应的内存地址被修改，就会将当前处理器的缓存行设置成无效状态，当处理器对这个数据进行修改操作的时候，会重新从系统内存中把数据读到处理器缓存里。</strong></p>
-<h2 id="synchronized的实现原理与应用"><a href="#synchronized的实现原理与应用" class="headerlink" title="synchronized的实现原理与应用"></a>synchronized的实现原理与应用</h2><p>利用synchronized实现同步的基础：Java中的每一个对象都可以作为锁。具体表现为以下3种形式：</p>
-<ul>
-<li>对于普通同步方法，锁是当前实例对象。</li>
-<li>对于静态同步方法，锁是当前类的Class对象。</li>
-<li>对于同步方法块，锁是synchronized括号里配置的对象。</li>
-</ul>
-<p>synchronized在JVM里的实现原理：基于进入和退出Monitor对象来实现方法同步和代码块同步，都可以使用<code>monitorenter</code>和<code>monitorexit</code>指令实现。</p>
-<p><code>monitorenter</code>指令是在编译后插入到同步代码块的开始位置，而<code>monitorexit</code>是插入到方法结束处和异常处，JVM要保证每个<code>monitorenter</code>必须有对应的<code>monitorexit</code>与之配对。任何对象都有一个monitor与之关联，当且一个monitor被持有后，它将处于锁定状态。线程执行到<code>monitorenter</code>指令时，将会尝试获取对象所对应的monitor的所有权，即尝试获得对象所。</p>
-<h3 id="Java对象头"><a href="#Java对象头" class="headerlink" title="Java对象头"></a>Java对象头</h3><p>synchronized用的锁存在Java对象头里的。Java对象头里的Mark Word里默认存储对象的HashCode、分代年龄和锁标记位。32位JVM的Mark Word的默认存储结构如下表所示：</p>
-<table>
-<thead>
-<tr>
-<th align="center">锁状态</th>
-<th align="center">25bit</th>
-<th align="center">4bit</th>
-<th align="center">1bit是否是偏向锁</th>
-<th align="center">2bit锁标志位</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="center">无锁状态</td>
-<td align="center">对象的hashCode</td>
-<td align="center">对象分代年龄</td>
-<td align="center">0</td>
-<td align="center">01</td>
-</tr>
-</tbody></table>
-<h3 id="锁的升级与对比"><a href="#锁的升级与对比" class="headerlink" title="锁的升级与对比"></a>锁的升级与对比</h3><p>锁一共有4种状态，级别<strong>从低到高依次</strong>是：<strong>无锁状态、偏向锁状态、轻量级锁状态和重量级锁状态</strong>，这几个状态会随着竞争情况逐渐升级，锁可以升级不能降级。</p>
-<h4 id="1-偏向锁"><a href="#1-偏向锁" class="headerlink" title="1.偏向锁"></a>1.偏向锁</h4><p>当一个线程访问同步块并获取锁时，会在对象头和栈帧中的锁记录里存储偏向的线程ID，以后该线程在进入和退出同步块时<strong>不需要</strong>进行CAS操作来加锁和解锁，只需简单地测试一下对象头的Mark Word里是否存储着指向当前线程的偏向锁。</p>
-<p><strong>如果测试成功</strong>，表示线程已经获得了锁，<strong>否则</strong>，再测试一下Mark Word中偏向锁的标识是否设置成1（表示当前是偏向锁），<strong>如果没有设置</strong>，则使用CAS竞争锁，<strong>如果设置了</strong>，则尝试使用CAS将对象头的偏向锁指向当前线程。</p>
-<p>偏向锁的获得和撤销流程如下：</p>
-<p><img src="/2024/09/18/%E3%80%90Java%E5%B9%B6%E5%8F%91%E7%BC%96%E7%A8%8B%E7%9A%84%E8%89%BA%E6%9C%AF2%E3%80%91Java%E5%B9%B6%E5%8F%91%E6%9C%BA%E5%88%B6%E7%9A%84%E5%BA%95%E5%B1%82%E5%AE%9E%E7%8E%B0%E5%8E%9F%E7%90%86/%E5%81%8F%E5%90%91%E9%94%81.jpg" alt="偏向锁"></p>
-<p><strong>偏向锁的撤销（在一个没有正在执行的字节码的时间点撤销）发生在另一个线程尝试获取已经偏向于某一线程的锁</strong></p>
-<h4 id="2-轻量级锁"><a href="#2-轻量级锁" class="headerlink" title="2.轻量级锁"></a>2.轻量级锁</h4><ol>
-<li><p>轻量级加锁</p>
-<p>线程在执行同步块之前，JVM会先在当前线程的栈帧中创建用于存储锁记录的空间，并将对象头总的Mark Word复制到锁记录中，称为<code>Displaced Mark Word</code>。然后线程尝试使用CAS将对象头中的Mark Word替换为指向锁记录的指针。<strong>如果成功</strong>，当前线程获得锁，<strong>如果失败</strong>，表示其他线程竞争锁，当前线程便尝试使用自旋获取锁</p>
-</li>
-<li><p>轻量级解锁</p>
-<p>轻量级解锁时，会使用原子的CAS操作将<code>Displaced Mark Word</code>替换回到对象头，<strong>如果成功</strong>，则表示没有竞争发生。<strong>如果失败</strong>，表示当前锁存在竞争，锁就会膨胀成重量级锁。</p>
-</li>
-</ol>
-<p><img src="/2024/09/18/%E3%80%90Java%E5%B9%B6%E5%8F%91%E7%BC%96%E7%A8%8B%E7%9A%84%E8%89%BA%E6%9C%AF2%E3%80%91Java%E5%B9%B6%E5%8F%91%E6%9C%BA%E5%88%B6%E7%9A%84%E5%BA%95%E5%B1%82%E5%AE%9E%E7%8E%B0%E5%8E%9F%E7%90%86/%E8%BD%BB%E9%87%8F%E7%BA%A7%E9%94%81.jpg" alt="轻量级锁"></p>
-<p><strong>线程2中获取锁失败的原因是：线程1已经将Mark Word更改成指向锁记录的指针，所以线程2的CAS会失败</strong></p>
-<p><strong>线程1中第二个CAS失败是因为线程2将Mark Word已经更改为指向重量级锁的指针，所以这里的CAS会失败</strong></p>
-<h4 id="3-锁的优缺点对比"><a href="#3-锁的优缺点对比" class="headerlink" title="3.锁的优缺点对比"></a>3.锁的优缺点对比</h4><table>
-<thead>
-<tr>
-<th align="center">锁</th>
-<th align="center">优点</th>
-<th align="center">缺点</th>
-<th align="center">适用场景</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="center">偏向锁</td>
-<td align="center">加锁和解锁不需要额外的消耗，和执行非同步方法相比仅存在纳米级差距</td>
-<td align="center">如果线程存在锁竞争，会带来额外的锁撤销的消耗</td>
-<td align="center">适用于只有一个线程访问同步块场景</td>
-</tr>
-<tr>
-<td align="center">轻量级锁</td>
-<td align="center">竞争的线程不会阻塞，提高了程序的响应速度</td>
-<td align="center">如果始终得不到锁竞争的线程，使用自旋会消耗CPU</td>
-<td align="center">追求响应时间，同步块执行速度非常快</td>
-</tr>
-<tr>
-<td align="center">重量级锁</td>
-<td align="center">线程竞争不使用自旋，不会消耗CPU</td>
-<td align="center">线程阻塞，响应时间缓慢</td>
-<td align="center">追求吞吐量，同步块执行速度较长</td>
-</tr>
-</tbody></table>
-<h2 id="原子操作"><a href="#原子操作" class="headerlink" title="原子操作"></a>原子操作</h2><p>Java中可以通过锁和循环CAS的方式来实现原子操作。</p>
-<p>CAS实现原子操作的三大问题：</p>
-<ol>
-<li><p><strong>ABA问题</strong></p>
-<p>因为CAS需要在操作值的时候，检查值有没有发生变化，如果没有发生变化则更新，如果一个值原本是A，变成了B，又变成了A，那么使用CAS进行检查时会发现值没有变化，但实际发生了变化。解决思路是使用版本号，在变量前面加上版本号，每次变量更新的时候把版本号加1，那么A-&gt;B-&gt;A，就变成了1A-&gt;2B-&gt;3A。</p>
-</li>
-<li><p><strong>循环时间长开销大</strong></p>
-</li>
-<li><p><strong>只能保证一个共享变量的原子操作</strong></p>
-<p>对多个共享变量操作时，循环CAS就无法保证操作的原子性。Java1.5后，JDK提供了AtomicReference类来保证引用对象之间的原子性，这样就可以把多个变量放在一个对象里来进行CAS操作。</p>
-</li>
-</ol>
-
+          <h2 id="前言"><a href="#前言" class="headerlink" title="前言"></a>前言</h2><p>Java代码在编译后会变成Java字节码，字节码被类加载器加载到JVM里，JVM执行字节码，最终需要转化为汇编指令在CPU上执行，Java中所使用的并发机制依赖于JVM的实现和CPU的指令。本文章将探索一下Java并发机制的底层实现原理</p>
+          <!--noindex-->
+            <div class="post-button">
+              <a class="btn" href="/2024/09/18/%E3%80%90Java%E5%B9%B6%E5%8F%91%E7%BC%96%E7%A8%8B%E7%9A%84%E8%89%BA%E6%9C%AF2%E3%80%91Java%E5%B9%B6%E5%8F%91%E6%9C%BA%E5%88%B6%E7%9A%84%E5%BA%95%E5%B1%82%E5%AE%9E%E7%8E%B0%E5%8E%9F%E7%90%86/#more" rel="contents">
+                Read more &raquo;
+              </a>
+            </div>
+          <!--/noindex-->
+        
       
     </div>
 

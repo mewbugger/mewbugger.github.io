@@ -19,16 +19,16 @@
 
 <script class="next-config" data-name="main" type="application/json">{"hostname":"example.com","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.19.2","exturl":false,"sidebar":{"position":"left","display":"post","padding":18,"offset":12},"copycode":{"enable":false,"style":null},"fold":{"enable":false,"height":500},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"}}</script><script src="/js/config.js"></script>
 
-    <meta name="description" content="前言今天的话题是，在不同的业务场景下，应该选择普通索引，还是唯一索引 假设现在维护一个市民系统，每个人都有一个唯一的身份证号，而且业务代码已经保证了写入两个重复的身份证号。如果市民系统需要按照身份证号查姓名，就会执行类似下面的sql语句; 1select name from CUser where id_card &#x3D; &#x27;xxxxxxxyyyyyyzzzzz&#x27;;  这种情况下，会">
+    <meta name="description" content="前言今天的话题是，在不同的业务场景下，应该选择普通索引，还是唯一索引">
 <meta property="og:type" content="article">
 <meta property="og:title" content="【MySQL实战45讲9】普通索引和唯一索引怎么选择">
 <meta property="og:url" content="http://example.com/2024/10/24/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B29%E3%80%91%E6%99%AE%E9%80%9A%E7%B4%A2%E5%BC%95%E5%92%8C%E5%94%AF%E4%B8%80%E7%B4%A2%E5%BC%95%E6%80%8E%E4%B9%88%E9%80%89%E6%8B%A9/index.html">
 <meta property="og:site_name" content="Crude &#39;s Blog">
-<meta property="og:description" content="前言今天的话题是，在不同的业务场景下，应该选择普通索引，还是唯一索引 假设现在维护一个市民系统，每个人都有一个唯一的身份证号，而且业务代码已经保证了写入两个重复的身份证号。如果市民系统需要按照身份证号查姓名，就会执行类似下面的sql语句; 1select name from CUser where id_card &#x3D; &#x27;xxxxxxxyyyyyyzzzzz&#x27;;  这种情况下，会">
+<meta property="og:description" content="前言今天的话题是，在不同的业务场景下，应该选择普通索引，还是唯一索引">
 <meta property="og:locale" content="en_US">
 <meta property="og:image" content="http://example.com/2024/10/24/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B29%E3%80%91%E6%99%AE%E9%80%9A%E7%B4%A2%E5%BC%95%E5%92%8C%E5%94%AF%E4%B8%80%E7%B4%A2%E5%BC%95%E6%80%8E%E4%B9%88%E9%80%89%E6%8B%A9/InnoDB%E7%B4%A2%E5%BC%95%E7%BB%84%E7%BB%87%E7%BB%93%E6%9E%84.jpg">
 <meta property="article:published_time" content="2024-10-23T16:40:41.000Z">
-<meta property="article:modified_time" content="2024-10-23T17:11:36.249Z">
+<meta property="article:modified_time" content="2024-11-03T09:11:13.999Z">
 <meta property="article:author" content="Barry Crude">
 <meta property="article:tag" content="MySQL">
 <meta name="twitter:card" content="summary">
@@ -193,9 +193,15 @@
         <i class="far fa-calendar"></i>
       </span>
       <span class="post-meta-item-text">Posted on</span>
-      
 
-      <time title="Created: 2024-10-24 00:40:41 / Modified: 01:11:36" itemprop="dateCreated datePublished" datetime="2024-10-24T00:40:41+08:00">2024-10-24</time>
+      <time title="Created: 2024-10-24 00:40:41" itemprop="dateCreated datePublished" datetime="2024-10-24T00:40:41+08:00">2024-10-24</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">Edited on</span>
+      <time title="Modified: 2024-11-03 17:11:13" itemprop="dateModified" datetime="2024-11-03T17:11:13+08:00">2024-11-03</time>
     </span>
     <span class="post-meta-item">
       <span class="post-meta-item-icon">
@@ -224,6 +230,8 @@
     
     
     <div class="post-body" itemprop="articleBody"><h2 id="前言"><a href="#前言" class="headerlink" title="前言"></a>前言</h2><p>今天的话题是，在不同的业务场景下，应该选择普通索引，还是唯一索引</p>
+<span id="more"></span>
+
 <p>假设现在维护一个市民系统，每个人都有一个唯一的身份证号，而且业务代码已经保证了写入两个重复的身份证号。如果市民系统需要按照身份证号查姓名，就会执行类似下面的sql语句;</p>
 <figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">select</span> name <span class="keyword">from</span> CUser <span class="keyword">where</span> id_card <span class="operator">=</span> <span class="string">&#x27;xxxxxxxyyyyyyzzzzz&#x27;</span>;</span><br></pre></td></tr></table></figure>
 
