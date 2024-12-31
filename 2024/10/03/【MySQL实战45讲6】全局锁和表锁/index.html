@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222"><meta name="generator" content="Hexo 7.1.1">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha256-wiz7ZSCn/btzhjKDQBms9Hx4sSeUYsDrTLg7roPstac=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"example.com","root":"/","images":"/images","scheme":"Gemini","darkmode":false,"version":"8.19.2","exturl":false,"sidebar":{"position":"left","display":"always","padding":18,"offset":12},"copycode":{"enable":false,"style":null},"fold":{"enable":false,"height":500},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":true,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"}}</script><script src="/js/config.js"></script>
+
+    <meta name="description" content="前言MySQL 的锁。数据库锁设计的初衷是处理并发问题。作为多用户共享的资源，当出现并发访问的时候，数据库需要合理地控制资源的访问规则。而锁就是用来实现这些访问规则的重要数据结构。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="【MySQL实战45讲6】全局锁和表锁">
+<meta property="og:url" content="http://example.com/2024/10/03/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B26%E3%80%91%E5%85%A8%E5%B1%80%E9%94%81%E5%92%8C%E8%A1%A8%E9%94%81/index.html">
+<meta property="og:site_name" content="Crude &#39;s Blog">
+<meta property="og:description" content="前言MySQL 的锁。数据库锁设计的初衷是处理并发问题。作为多用户共享的资源，当出现并发访问的时候，数据库需要合理地控制资源的访问规则。而锁就是用来实现这些访问规则的重要数据结构。">
+<meta property="og:locale" content="en_US">
+<meta property="og:image" content="http://example.com/2024/10/03/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B26%E3%80%91%E5%85%A8%E5%B1%80%E9%94%81%E5%92%8C%E8%A1%A8%E9%94%81/%E4%B8%9A%E5%8A%A1%E5%92%8C%E7%8A%B6%E6%80%81%E5%A4%87%E4%BB%BD%E5%9B%BE.jpg">
+<meta property="article:published_time" content="2024-10-03T14:50:06.000Z">
+<meta property="article:modified_time" content="2024-11-03T09:15:50.829Z">
+<meta property="article:author" content="Barry Crude">
+<meta property="article:tag" content="MySQL">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="http://example.com/2024/10/03/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B26%E3%80%91%E5%85%A8%E5%B1%80%E9%94%81%E5%92%8C%E8%A1%A8%E9%94%81/%E4%B8%9A%E5%8A%A1%E5%92%8C%E7%8A%B6%E6%80%81%E5%A4%87%E4%BB%BD%E5%9B%BE.jpg">
+
+
+<link rel="canonical" href="http://example.com/2024/10/03/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B26%E3%80%91%E5%85%A8%E5%B1%80%E9%94%81%E5%92%8C%E8%A1%A8%E9%94%81/">
+
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://example.com/2024/10/03/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B26%E3%80%91%E5%85%A8%E5%B1%80%E9%94%81%E5%92%8C%E8%A1%A8%E9%94%81/","path":"2024/10/03/【MySQL实战45讲6】全局锁和表锁/","title":"【MySQL实战45讲6】全局锁和表锁"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>【MySQL实战45讲6】全局锁和表锁 | Crude 's Blog</title>
+  
+
+
+
+
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">Crude 's Blog</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-home"><a href="/" rel="section"><i class="home fa-fw"></i>Home</a></li><li class="menu-item menu-item-about"><a href="/about/" rel="section"><i class="user fa-fw"></i>About</a></li><li class="menu-item menu-item-tags"><a href="/tags/" rel="section"><i class="tags fa-fw"></i>Tags</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="th fa-fw"></i>Categories</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="archive fa-fw"></i>Archives</a></li><li class="menu-item menu-item-link"><a href="/links/" rel="section"><i class="fa fa-link fa-fw"></i>友链</a></li>
+  </ul>
+</nav>
+
+
+
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%89%8D%E8%A8%80"><span class="nav-number">1.</span> <span class="nav-text">前言</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%85%A8%E5%B1%80%E9%94%81"><span class="nav-number">2.</span> <span class="nav-text">全局锁</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E8%A1%A8%E7%BA%A7%E9%94%81"><span class="nav-number">3.</span> <span class="nav-text">表级锁</span></a></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">Barry Crude</p>
+  <div class="site-description" itemprop="description">Crude 's Blog</div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">13</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">2</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">3</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+  <div class="links-of-author animated">
+      <span class="links-of-author-item">
+        <a href="https://github.com/mewbugger" title="GitHub → https:&#x2F;&#x2F;github.com&#x2F;mewbugger" rel="noopener me" target="_blank"><i class="fab fa-github fa-fw"></i>GitHub</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="https://blog.csdn.net/RuaaaHaHa" title="CSDN → https:&#x2F;&#x2F;blog.csdn.net&#x2F;RuaaaHaHa" rel="noopener me" target="_blank"><i class="book fa-fw"></i>CSDN</a>
+      </span>
+  </div>
+
+        </div>
+      </div>
+    </div>
+
+    
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://example.com/2024/10/03/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B26%E3%80%91%E5%85%A8%E5%B1%80%E9%94%81%E5%92%8C%E8%A1%A8%E9%94%81/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="Barry Crude">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Crude 's Blog">
+      <meta itemprop="description" content="Crude 's Blog">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="【MySQL实战45讲6】全局锁和表锁 | Crude 's Blog">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          【MySQL实战45讲6】全局锁和表锁
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2024-10-03 22:50:06" itemprop="dateCreated datePublished" datetime="2024-10-03T22:50:06+08:00">2024-10-03</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">Edited on</span>
+      <time title="Modified: 2024-11-03 17:15:50" itemprop="dateModified" datetime="2024-11-03T17:15:50+08:00">2024-11-03</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E5%AD%A6%E4%B9%A0/" itemprop="url" rel="index"><span itemprop="name">学习</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-item" title="Views" id="busuanzi_container_page_pv">
+      <span class="post-meta-item-icon">
+        <i class="far fa-eye"></i>
+      </span>
+      <span class="post-meta-item-text">Views: </span>
+      <span id="busuanzi_value_page_pv"></span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h2 id="前言"><a href="#前言" class="headerlink" title="前言"></a>前言</h2><p>MySQL 的锁。数据库锁设计的初衷是处理并发问题。作为多用户共享的资源，当出现并发访问的时候，数据库需要合理地控制资源的访问规则。而锁就是用来实现这些访问规则的重要数据结构。</p>
+<span id="more"></span>
+
+<h2 id="全局锁"><a href="#全局锁" class="headerlink" title="全局锁"></a>全局锁</h2><p>顾名思义，<strong>全局锁就是对整个数据库实例加锁</strong>。MySQL提供了一个对全局读锁的方法，命令是<code>Flush tables with read lock (FTWRL)</code> 当需要让整个库处于只读状态的时候，可以使用这个命令，<strong>之后其他线程的以下语句会被阻塞：数据更新语句（数据的增删改）、数据定义语句（包括建表、修改表结构等）和更新类事务的提交语句。</strong></p>
+<p>全局锁的典型使用场景是，<strong>做全库逻辑备份</strong>，也就是把整库每个表都select出来存成文本。</p>
+<p>通过FTWRL确保不会有其他线程对数据库做更新，然后对整个库做备份。注意，在<strong>备份过程中整个库完全处于只读状态</strong>。</p>
+<p>但是让整库都只读，听上去很危险;</p>
+<ul>
+<li>如果在主库上备份，那么备份期间都不能执行更新，业务基本停摆</li>
+<li>如果在从库上备份，那么备份期间从库不能执行主库同步过来的binlog，导致主从延迟。</li>
+</ul>
+<p>上述两种危险显然是不好的，那么，为什么要加全局锁呢？可以试想一下，不加全局锁会出现什么问题。</p>
+<p>假设需要维护一个购买系统，关注的是用户账户余额表和用户课程表。</p>
+<p>现在发起一个备份逻辑，假设备份期间，有个用户购买了一门课程，业务逻辑里就要扣掉对应的余额，然后往已购课程里面加一门课。</p>
+<p>如果时间顺序上是先备份账户余额表，然后用户购买，然后备份用户课程表，会出现下图所示的情况：</p>
+<p><img src="/2024/10/03/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B26%E3%80%91%E5%85%A8%E5%B1%80%E9%94%81%E5%92%8C%E8%A1%A8%E9%94%81/%E4%B8%9A%E5%8A%A1%E5%92%8C%E7%8A%B6%E6%80%81%E5%A4%87%E4%BB%BD%E5%9B%BE.jpg" alt="业务和状态备份图"></p>
+<p>可以看到，这个备份结果里，用户A的数据状态是“账户余额没扣，但是用户课程表里面已经多了一门课”。如果后面用这个备份来恢复数据的话，用户A就发现，自己赚了。</p>
+<p>同理，如果备份表的顺序反过来，先备份用户课程表，再备份账户余额表，用户就白亏钱了。</p>
+<p>也就是说，<strong>不加锁的话，备份系统备份的得到的库不是一个逻辑时间点</strong>。</p>
+<h2 id="表级锁"><a href="#表级锁" class="headerlink" title="表级锁"></a>表级锁</h2><p>MySQL 里面表级别的锁有两种：一种是<strong>表锁</strong>，一种是<strong>元数据锁</strong>（meta data lock，MDL)。</p>
+<p>表锁的语法是 <code>lock tables … read/write</code>。与 <code>FTWRL</code> 类似，可以用 <code>unlock tables</code> 主动释放锁，也可以在客户端断开的时候自动释放。需要注意，<code>lock tables</code> 语法除了会限制别的线程的读写外，也限定了本线程接下来的操作对象。</p>
+<p>举个例子, 如果在某个线程 A 中执行 <code>lock tables t1 read, t2 write;</code> 这个语句，则其他线程写 t1、读写 t2 的语句都会被阻塞。同时，线程 A 在执行 <code>unlock tables</code> 之前，也只能执行读 t1、读写 t2 的操作。连写 t1 都不允许，自然也不能访问其他表。</p>
+<p>在还没有出现更细粒度的锁的时候，表锁是最常用的处理并发的方式。而对于 InnoDB 这种支持行锁的引擎，一般不使用 <code>lock tables</code> 命令来控制并发，毕竟锁住整个表的影响面还是太大。</p>
+<p>另一类表级的锁是 MDL（metadata lock)。MDL 不需要显式使用，在访问一个表的时候会被自动加上。MDL 的作用是，保证读写的正确性。你可以想象一下，如果一个查询正在遍历一个表中的数据，而执行期间另一个线程对这个表结构做变更，删了一列，那么查询线程拿到的结果跟表结构对不上，肯定是不行的。</p>
+<p>因此，在 MySQL 5.5 版本中引入了 MDL，当对一个表做增删改查操作的时候，加 MDL 读锁；当要对表做结构变更操作的时候，加 MDL 写锁。</p>
+<ul>
+<li>读锁之间不互斥，因此你可以有多个线程同时对一张表增删改查。</li>
+<li>读写锁之间、写锁之间是互斥的，用来保证变更表结构操作的安全性。因此，如果有两个线程要同时给一个表加字段，其中一个要等另一个执行完才能开始执行。</li>
+</ul>
+<p>虽然 MDL 锁是系统默认会加的，但却是你不能忽略的一个机制。比如下面这个例子，我经常看到有人掉到这个坑里：给一个小表加个字段，导致整个库挂了。</p>
+<p>给一个表加字段，或者修改字段，或者加索引，需要扫描全表的数据。在对大表操作的时候，你肯定会特别小心，以免对线上服务造成影响。而实际上，即使是小表，操作不慎也会出问题。我们来看一下下面的操作序列，假设表 t 是一个小表。</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Session A</th>
+<th>Session B</th>
+<th>Session C</th>
+<th>Session D</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Step 1</strong></td>
+<td><code>begin;</code></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>Step 2</strong></td>
+<td><code>select * from t limit 1;</code></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>Step 3</strong></td>
+<td></td>
+<td><code>select * from t limit 1;</code></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>Step 4</strong></td>
+<td></td>
+<td></td>
+<td><code>alter table t add f int; (blocked)</code></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>Step 5</strong></td>
+<td></td>
+<td></td>
+<td></td>
+<td><code>select * from t limit 1; (blocked)</code></td>
+</tr>
+</tbody></table>
+<p>我们可以看到 session A 先启动，这时候会对表 t 加一个 MDL 读锁。由于 session B 需要的也是 MDL 读锁，因此可以正常执行。</p>
+<p>之后 session C 会被 blocked，是因为 session A 的 MDL 读锁还没有释放，而 session C 需要 MDL 写锁，因此只能被阻塞。</p>
+<p>如果只有 session C 自己被阻塞还没什么关系，但是之后所有要在表 t 上新申请 MDL 读锁的请求也会被 session C 阻塞。前面我们说了，所有对表的增删改查操作都需要先申请 MDL 读锁，就都被锁住，等于这个表现在完全不可读写了。</p>
+<p>如果某个表上的查询语句频繁，而且客户端有重试机制，也就是说超时后会再起一个新 session 再请求的话，这个库的线程很快就会爆满。</p>
+<p>那么，如何安全地给小表加字段？</p>
+<p><strong>首先要解决长事务，事务不提交，就会一直占着 MDL 锁</strong>。在 MySQL 的 <code>information_schema</code> 库的 <code>innodb_trx</code> 表中，你可以查到当前执行中的事务。如果你要做 DDL 变更的表刚好有长事务在执行，要考虑先暂停 DDL，或者 kill 掉这个长事务。</p>
+<p>但考虑一下这个场景。<strong>如果要变更的表是一个热点表</strong>，虽然数据量不大，但是上面的请求很频繁，而不得不加个字段，该怎么做呢？这时候 kill 可能未必管用，因为新的请求马上就来了。比较理想的机制是，在 <code>alter table</code> 语句里面<strong>设定等待时间，如果在这个指定的等待时间里面能够拿到 MDL 写锁最好，拿不到也不要阻塞后面的业务语句，先放弃。</strong>之后开发人员或者 DBA 再通过重试命令重复这个过程。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/MySQL/" rel="tag"># MySQL</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2024/09/27/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B24-5%E3%80%91%E7%B4%A2%E5%BC%95/" rel="prev" title="【MySQL实战45讲4-5】索引">
+                  <i class="fa fa-angle-left"></i> 【MySQL实战45讲4-5】索引
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2024/10/05/%E3%80%90Java%E5%B9%B6%E5%8F%91%E7%BC%96%E7%A8%8B%E7%9A%84%E8%89%BA%E6%9C%AF3%E3%80%91Java%E5%86%85%E5%AD%98%E6%A8%A1%E5%9E%8B%EF%BC%88%E4%B8%8A%EF%BC%89/" rel="next" title="【Java并发编程的艺术3】Java内存模型（上）">
+                  【Java并发编程的艺术3】Java内存模型（上） <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2024</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder">Barry Crude</span>
+  </div>
+<div class="busuanzi-count">
+    <span class="post-meta-item" id="busuanzi_container_site_uv">
+      <span class="post-meta-item-icon">
+        <i class="fa fa-user"></i>
+      </span>
+      <span class="site-uv" title="Total Visitors">
+        <span id="busuanzi_value_site_uv"></span>
+      </span>
+    </span>
+    <span class="post-meta-item" id="busuanzi_container_site_pv">
+      <span class="post-meta-item-icon">
+        <i class="fa fa-eye"></i>
+      </span>
+      <span class="site-pv" title="Total Views">
+        <span id="busuanzi_value_site_pv"></span>
+      </span>
+    </span>
+</div>
+  <div class="powered-by">Powered by <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/" rel="noopener" target="_blank">NexT.Gemini</a>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="back-to-top" role="button" aria-label="Back to top">
+    <i class="fa fa-arrow-up fa-lg"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous"></script>
+<script src="/js/comments.js"></script><script src="/js/utils.js"></script><script src="/js/motion.js"></script><script src="/js/next-boot.js"></script>
+
+  
+
+
+
+
+
+
+  
+  <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+
+
+
+
+
+</body>
+</html>

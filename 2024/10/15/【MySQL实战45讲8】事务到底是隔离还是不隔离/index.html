@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222"><meta name="generator" content="Hexo 7.1.1">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha256-wiz7ZSCn/btzhjKDQBms9Hx4sSeUYsDrTLg7roPstac=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"example.com","root":"/","images":"/images","scheme":"Gemini","darkmode":false,"version":"8.19.2","exturl":false,"sidebar":{"position":"left","display":"always","padding":18,"offset":12},"copycode":{"enable":false,"style":null},"fold":{"enable":false,"height":500},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":true,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"}}</script><script src="/js/config.js"></script>
+
+    <meta name="description" content="前言如果是可重复读隔离级别，事务T启动的时候会创建一个视图read-view，之后事务T执行期间，即使有其他事务修改了数据，事务T看到的仍然跟在启动时看到的一样。 但当一个事务要更新一行的时候，如果刚好有另外一个事务拥有这一行的行锁，这个事务会被锁住，进入等待状态。问题是，既然进入了等待状态，那么等到这个事务自己获取到行锁要更新数据的时候，它读到的值又是什么呢？">
+<meta property="og:type" content="article">
+<meta property="og:title" content="【MySQL实战45讲8】事务到底是隔离还是不隔离">
+<meta property="og:url" content="http://example.com/2024/10/15/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B28%E3%80%91%E4%BA%8B%E5%8A%A1%E5%88%B0%E5%BA%95%E6%98%AF%E9%9A%94%E7%A6%BB%E8%BF%98%E6%98%AF%E4%B8%8D%E9%9A%94%E7%A6%BB/index.html">
+<meta property="og:site_name" content="Crude &#39;s Blog">
+<meta property="og:description" content="前言如果是可重复读隔离级别，事务T启动的时候会创建一个视图read-view，之后事务T执行期间，即使有其他事务修改了数据，事务T看到的仍然跟在启动时看到的一样。 但当一个事务要更新一行的时候，如果刚好有另外一个事务拥有这一行的行锁，这个事务会被锁住，进入等待状态。问题是，既然进入了等待状态，那么等到这个事务自己获取到行锁要更新数据的时候，它读到的值又是什么呢？">
+<meta property="og:locale" content="en_US">
+<meta property="og:image" content="http://example.com/2024/10/15/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B28%E3%80%91%E4%BA%8B%E5%8A%A1%E5%88%B0%E5%BA%95%E6%98%AF%E9%9A%94%E7%A6%BB%E8%BF%98%E6%98%AF%E4%B8%8D%E9%9A%94%E7%A6%BB/%E8%A1%8C%E7%8A%B6%E6%80%81%E5%8F%98%E6%9B%B4%E5%9B%BE.jpg">
+<meta property="og:image" content="http://example.com/2024/10/15/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B28%E3%80%91%E4%BA%8B%E5%8A%A1%E5%88%B0%E5%BA%95%E6%98%AF%E9%9A%94%E7%A6%BB%E8%BF%98%E6%98%AF%E4%B8%8D%E9%9A%94%E7%A6%BB/%E6%95%B0%E6%8D%AE%E7%89%88%E6%9C%AC%E5%8F%AF%E8%A7%81%E6%80%A7%E8%A7%84%E5%88%99.jpg">
+<meta property="og:image" content="http://example.com/2024/10/15/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B28%E3%80%91%E4%BA%8B%E5%8A%A1%E5%88%B0%E5%BA%95%E6%98%AF%E9%9A%94%E7%A6%BB%E8%BF%98%E6%98%AF%E4%B8%8D%E9%9A%94%E7%A6%BB/%E4%BA%8B%E5%8A%A1A%E6%9F%A5%E8%AF%A2%E6%95%B0%E6%8D%AE%E9%80%BB%E8%BE%91%E5%9B%BE.jpg">
+<meta property="article:published_time" content="2024-10-15T02:00:38.000Z">
+<meta property="article:modified_time" content="2024-11-03T09:11:59.176Z">
+<meta property="article:author" content="Barry Crude">
+<meta property="article:tag" content="MySQL">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="http://example.com/2024/10/15/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B28%E3%80%91%E4%BA%8B%E5%8A%A1%E5%88%B0%E5%BA%95%E6%98%AF%E9%9A%94%E7%A6%BB%E8%BF%98%E6%98%AF%E4%B8%8D%E9%9A%94%E7%A6%BB/%E8%A1%8C%E7%8A%B6%E6%80%81%E5%8F%98%E6%9B%B4%E5%9B%BE.jpg">
+
+
+<link rel="canonical" href="http://example.com/2024/10/15/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B28%E3%80%91%E4%BA%8B%E5%8A%A1%E5%88%B0%E5%BA%95%E6%98%AF%E9%9A%94%E7%A6%BB%E8%BF%98%E6%98%AF%E4%B8%8D%E9%9A%94%E7%A6%BB/">
+
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://example.com/2024/10/15/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B28%E3%80%91%E4%BA%8B%E5%8A%A1%E5%88%B0%E5%BA%95%E6%98%AF%E9%9A%94%E7%A6%BB%E8%BF%98%E6%98%AF%E4%B8%8D%E9%9A%94%E7%A6%BB/","path":"2024/10/15/【MySQL实战45讲8】事务到底是隔离还是不隔离/","title":"【MySQL实战45讲8】事务到底是隔离还是不隔离"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>【MySQL实战45讲8】事务到底是隔离还是不隔离 | Crude 's Blog</title>
+  
+
+
+
+
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">Crude 's Blog</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-home"><a href="/" rel="section"><i class="home fa-fw"></i>Home</a></li><li class="menu-item menu-item-about"><a href="/about/" rel="section"><i class="user fa-fw"></i>About</a></li><li class="menu-item menu-item-tags"><a href="/tags/" rel="section"><i class="tags fa-fw"></i>Tags</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="th fa-fw"></i>Categories</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="archive fa-fw"></i>Archives</a></li><li class="menu-item menu-item-link"><a href="/links/" rel="section"><i class="fa fa-link fa-fw"></i>友链</a></li>
+  </ul>
+</nav>
+
+
+
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%89%8D%E8%A8%80"><span class="nav-number">1.</span> <span class="nav-text">前言</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%A1%88%E4%BE%8B"><span class="nav-number">2.</span> <span class="nav-text">案例</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E2%80%9C%E5%BF%AB%E7%85%A7%E2%80%9D%E5%9C%A8MVCC%E9%87%8C%E6%98%AF%E6%80%8E%E4%B9%88%E5%B7%A5%E4%BD%9C%E7%9A%84"><span class="nav-number">3.</span> <span class="nav-text">“快照”在MVCC里是怎么工作的</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%9B%B4%E6%96%B0%E9%80%BB%E8%BE%91"><span class="nav-number">4.</span> <span class="nav-text">更新逻辑</span></a></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">Barry Crude</p>
+  <div class="site-description" itemprop="description">Crude 's Blog</div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">13</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">2</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">3</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+  <div class="links-of-author animated">
+      <span class="links-of-author-item">
+        <a href="https://github.com/mewbugger" title="GitHub → https:&#x2F;&#x2F;github.com&#x2F;mewbugger" rel="noopener me" target="_blank"><i class="fab fa-github fa-fw"></i>GitHub</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="https://blog.csdn.net/RuaaaHaHa" title="CSDN → https:&#x2F;&#x2F;blog.csdn.net&#x2F;RuaaaHaHa" rel="noopener me" target="_blank"><i class="book fa-fw"></i>CSDN</a>
+      </span>
+  </div>
+
+        </div>
+      </div>
+    </div>
+
+    
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://example.com/2024/10/15/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B28%E3%80%91%E4%BA%8B%E5%8A%A1%E5%88%B0%E5%BA%95%E6%98%AF%E9%9A%94%E7%A6%BB%E8%BF%98%E6%98%AF%E4%B8%8D%E9%9A%94%E7%A6%BB/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="Barry Crude">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Crude 's Blog">
+      <meta itemprop="description" content="Crude 's Blog">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="【MySQL实战45讲8】事务到底是隔离还是不隔离 | Crude 's Blog">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          【MySQL实战45讲8】事务到底是隔离还是不隔离
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2024-10-15 10:00:38" itemprop="dateCreated datePublished" datetime="2024-10-15T10:00:38+08:00">2024-10-15</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">Edited on</span>
+      <time title="Modified: 2024-11-03 17:11:59" itemprop="dateModified" datetime="2024-11-03T17:11:59+08:00">2024-11-03</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E5%AD%A6%E4%B9%A0/" itemprop="url" rel="index"><span itemprop="name">学习</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-item" title="Views" id="busuanzi_container_page_pv">
+      <span class="post-meta-item-icon">
+        <i class="far fa-eye"></i>
+      </span>
+      <span class="post-meta-item-text">Views: </span>
+      <span id="busuanzi_value_page_pv"></span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h2 id="前言"><a href="#前言" class="headerlink" title="前言"></a>前言</h2><p>如果是可重复读隔离级别，事务T启动的时候会创建一个视图read-view，<strong>之后事务T执行期间，即使有其他事务修改了数据，事务T看到的仍然跟在启动时看到的一样。</strong></p>
+<p>但当一个事务要更新一行的时候，如果刚好有另外一个事务拥有这一行的行锁，这个事务会被锁住，进入等待状态。<strong>问题是，既然进入了等待状态，那么等到这个事务自己获取到行锁要更新数据的时候，它读到的值又是什么呢？</strong></p>
+<span id="more"></span>
+
+<h2 id="案例"><a href="#案例" class="headerlink" title="案例"></a>案例</h2><p>下面是一个只有两行的表的初始化语句</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">mysql<span class="operator">&gt;</span> <span class="keyword">CREATE</span> <span class="keyword">TABLE</span> `t` (</span><br><span class="line">  `id` <span class="type">int</span>(<span class="number">11</span>) <span class="keyword">NOT</span> <span class="keyword">NULL</span>,</span><br><span class="line">  `k` <span class="type">int</span>(<span class="number">11</span>) <span class="keyword">DEFAULT</span> <span class="keyword">NULL</span>,</span><br><span class="line">  <span class="keyword">PRIMARY</span> KEY (`id`)</span><br><span class="line">) ENGINE<span class="operator">=</span>InnoDB;</span><br><span class="line"><span class="keyword">insert</span> <span class="keyword">into</span> t(id, k) <span class="keyword">values</span>(<span class="number">1</span>,<span class="number">1</span>),(<span class="number">2</span>,<span class="number">2</span>);</span><br></pre></td></tr></table></figure>
+
+<table>
+<thead>
+<tr>
+<th>事务A</th>
+<th>事务B</th>
+<th>事务C</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>start transaction with consistent snapshot;</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td></td>
+<td>start transaction with consistent snapshot;</td>
+<td></td>
+</tr>
+<tr>
+<td></td>
+<td></td>
+<td>update t set k&#x3D;k+1 where id&#x3D;1;</td>
+</tr>
+<tr>
+<td></td>
+<td>update t set k&#x3D;k+1 where id&#x3D;1;</td>
+<td></td>
+</tr>
+<tr>
+<td>select k from t where id&#x3D;1;<br>commit;</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td></td>
+<td>commit;</td>
+<td></td>
+</tr>
+</tbody></table>
+<p><code>begin/start transaction</code> 命令并不是一个事务的起点，在执行到它们之后的第一个操作 InnoDB 表的语句，事务才真正启动。如果想要马上启动一个事务，可以使用 <code>start transaction with consistent snapshot</code> 这个命令。</p>
+<p><code>begin/start transaction</code> ：一致性视图是在<strong>执行第一个快照读语</strong>句时创建。</p>
+<p><code>start transaction with consistent snapshot</code>：一致性视图是在执行<code>start transaction with consistent snapshot</code>时创建</p>
+<p>事务 C 没有显式地使用 begin&#x2F;commit，表示这个 update 语句本身就是一个事务，语句完成的时候会自动提交。事务 B 在更新了行之后查询 ; 事务 A 在一个只读事务中查询，并且时间顺序上是在事务 B 的查询之后。</p>
+<p>和第一感觉相反的是，事务B查到的k的值是3，事务A查到的k的值是1</p>
+<h2 id="“快照”在MVCC里是怎么工作的"><a href="#“快照”在MVCC里是怎么工作的" class="headerlink" title="“快照”在MVCC里是怎么工作的"></a>“快照”在MVCC里是怎么工作的</h2><p>在可重复读隔离级别下，事务在启动的时候就“拍了个快照”。这个快照是基于整库的。</p>
+<p>InnoDB里面每个事务有一个唯一的事务ID，叫做transaction id。它是在事务开始的时候想InnoDB的事务系统申请的，是按申请顺序严格递增的。</p>
+<p>每行数据也都有多个版本，每次事务更新数据的时候，都会生成一个新的数据版本，并且把transaction id赋值给这个数据版本的事务ID，记为row trx_id。同时，旧的数据版本要保留，并且在新的数据版本中，能够有信息可以直接拿到它。</p>
+<p>也就是说，数据表中的一行记录，其实可能有多个版本（row），每个版本有自己的row trx_id</p>
+<p><img src="/2024/10/15/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B28%E3%80%91%E4%BA%8B%E5%8A%A1%E5%88%B0%E5%BA%95%E6%98%AF%E9%9A%94%E7%A6%BB%E8%BF%98%E6%98%AF%E4%B8%8D%E9%9A%94%E7%A6%BB/%E8%A1%8C%E7%8A%B6%E6%80%81%E5%8F%98%E6%9B%B4%E5%9B%BE.jpg" alt="行状态变更图"></p>
+<p>图中虚线框里是同一行数据的 4 个版本，当前最新版本是 V4，k 的值是 22，它是被 transaction id 为 25 的事务更新的，因此它的 row trx_id 也是 25。</p>
+<p>图中的3个虚线箭头，就是<strong>undo log</strong>；而V1，V2，V3并不是物理上真实存在的，而是每次需要的时候根据当前版本和undo log计算出来的。比如，需要V2的时候，就是通过V4依次执行U3，U2算出来。</p>
+<p>InnoDB为每个事务构造了一个数组，用来保存这个事务启动瞬间，当前正在“活跃”的所有事务ID。“活跃”指的就是，启动了但还没提交。数组里面<strong>事务ID的最小值记为低水位</strong>，当前系统里面<strong>已经创建过的事务ID的最大值加1记为高水位</strong>。</p>
+<p>这个视图数组和高水位，就组成了当前事务的一致性视图（read-view）</p>
+<p>而数据版本的可见性规则，就是基于数据的row trx_id和这个一致性视图的对比结果得到的。</p>
+<p><img src="/2024/10/15/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B28%E3%80%91%E4%BA%8B%E5%8A%A1%E5%88%B0%E5%BA%95%E6%98%AF%E9%9A%94%E7%A6%BB%E8%BF%98%E6%98%AF%E4%B8%8D%E9%9A%94%E7%A6%BB/%E6%95%B0%E6%8D%AE%E7%89%88%E6%9C%AC%E5%8F%AF%E8%A7%81%E6%80%A7%E8%A7%84%E5%88%99.jpg" alt="数据版本可见性规则"></p>
+<p>对于当前事务的启动瞬间来说，一个数据版本的row trx_id，有以下几种可能;</p>
+<ol>
+<li>如果<strong>落在绿色</strong>部分，表示这个版本是已经提交的事务，或者是当前事务自己生产的，这个数据是可见的</li>
+<li>如果<strong>落在红色</strong>部分，表示这个版本是由将来启动的事务生成的，是肯定不可见的</li>
+<li>如果<strong>落在黄色</strong>部分，包括两种情况：<ul>
+<li>若row trx_id在数组中，表示这个版本是由还没提交的事务生成的，不可见</li>
+<li>若row trx_id不在数组中，表示这个版本是已经提交了的事务生成的，可见</li>
+</ul>
+</li>
+</ol>
+<p>比如，如果有一个事务，它的低水位是 18，那么当它访问这一行数据时，就会从 V4 通过 U3 计算出 V3，所以在它看来，这一行的值是 11。</p>
+<p>有了这个声明后，系统里面随后发生的更新，就和这个事务看到的内容无关了，之后的更新，新的数据版本对于当前的事务来说是不存在的，所以这个事务的快照，是“静态”的。</p>
+<p>接下来，看看第一个表格中的三个事务，分析下事务A的语句返回的结果，为什么是k&#x3D;1</p>
+<p>假设：</p>
+<ol>
+<li>事务A开始前，系统里面只有一个活跃事务ID是99</li>
+<li>事务A、B、C的版本号分别是100、101、102，且当前系统里只有这四个事务</li>
+<li>三个事务开始前，（1,1）这个一行数据的row trx_id</li>
+</ol>
+<p>事务A的视图数组是[99, 100]，事务B的视图数组是[99,100,101]，事务C的视图数组是[99,100,101,102]</p>
+<p>为了简化分析，先把其他干扰语句去掉，只画出跟事务A查询逻辑有关的操作：</p>
+<p><img src="/2024/10/15/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B28%E3%80%91%E4%BA%8B%E5%8A%A1%E5%88%B0%E5%BA%95%E6%98%AF%E9%9A%94%E7%A6%BB%E8%BF%98%E6%98%AF%E4%B8%8D%E9%9A%94%E7%A6%BB/%E4%BA%8B%E5%8A%A1A%E6%9F%A5%E8%AF%A2%E6%95%B0%E6%8D%AE%E9%80%BB%E8%BE%91%E5%9B%BE.jpg" alt="事务A查询数据逻辑图"></p>
+<p>从图中可以看到，第一个有效更新是事务 C，把数据从 (1,1) 改成了 (1,2)。这时候，这个数据的最新版本的 row trx_id 是 102，而 90 这个版本已经成为了历史版本。</p>
+<p>第二个有效更新是事务 B，把数据从 (1,2) 改成了 (1,3)。这时候，这个数据的最新版本（即 row trx_id）是 101，而 102 又成为了历史版本。</p>
+<p>在事务 A 查询的时候，其实事务 B 还没有提交，但是它生成的 (1,3) 这个版本已经变成当前版本了。但这个版本对事务 A 必须是不可见的，否则就变成脏读了。</p>
+<p>现在事务 A 要来读数据了，它的视图数组是[99,100]。当然了，读数据都是从当前版本读起的。所以，事务 A 查询语句的读数据流程是这样的：</p>
+<ul>
+<li>找到 (1,3) 的时候，判断出 row trx_id&#x3D;101，比高水位大，处于红色区域，不可见；</li>
+<li>接着，找到上一个历史版本，一看 row trx_id&#x3D;102，比高水位大，处于红色区域，不可见；</li>
+<li>再往前找，终于找到了（1,1)，它的 row trx_id&#x3D;90，比低水位小，处于绿色区域，可见。</li>
+</ul>
+<p>这样执行下来，虽然期间这一行数据被修改过，但是事务 A 不论在什么时候查询，看到这行数据的结果都是一致的，所以我们称之为一致性读。</p>
+<h2 id="更新逻辑"><a href="#更新逻辑" class="headerlink" title="更新逻辑"></a>更新逻辑</h2><p>对于上述的逻辑图，其实有一个疑问没有解答：事务B的update语句，如果按照一致性读，好像结果是不对的？</p>
+<p>事务B的视图数组是先生成的，之后事务C才提交，不是应该看不见(1,2)吗，怎么能算出(1,3)来？</p>
+<p>是的，如果事务B在更新之前查询一次数据，这个查询返回的k的值确实是1</p>
+<p>但是，当它要去更新数据的时候，就不能再在历史版本上更新了，否则事务C的更新就丢失了。因此，事务B此时的set k &#x3D; k + 1是在(1,2)的基础上进行的操作。</p>
+<p>所以，<strong>这里就用到了这样一条规则，更新数据都是先读后写，而这个读，只能读当前的值，称为“当前读”（current read）</strong></p>
+<p>因此，在更新的时候，当前读拿到的数据是 (1,2)，更新后生成了新版本的数据 (1,3)，这个新版本的 row trx_id 是 101。</p>
+<p>所以，在执行事务 B 查询语句的时候，一看自己的版本号是 101，最新数据的版本号也是 101，是自己的更新，可以直接使用，所以查询得到的 k 的值是 3。</p>
+<p>这里我们提到了一个概念，叫作<strong>当前读</strong>。其实，<strong>除了 update 语句外，select 语句如果加锁，也是当前读。</strong></p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">mysql<span class="operator">&gt;</span> <span class="keyword">select</span> k <span class="keyword">from</span> t <span class="keyword">where</span> id<span class="operator">=</span><span class="number">1</span> lock <span class="keyword">in</span> share mode;</span><br><span class="line">mysql<span class="operator">&gt;</span> <span class="keyword">select</span> k <span class="keyword">from</span> t <span class="keyword">where</span> id<span class="operator">=</span><span class="number">1</span> <span class="keyword">for</span> <span class="keyword">update</span>;</span><br></pre></td></tr></table></figure>
+
+<p>假设事务C不是马上提交的，而是变成下面的事务C’，会怎么样呢</p>
+<table>
+<thead>
+<tr>
+<th>事务A</th>
+<th>事务B</th>
+<th>事务C’</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>start transaction with consistent snapshot;</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td></td>
+<td>start transaction with consistent snapshot;</td>
+<td></td>
+</tr>
+<tr>
+<td></td>
+<td></td>
+<td>start transaction with consistent snapshot;<br>update t set k&#x3D;k+1 where id&#x3D;1;</td>
+</tr>
+<tr>
+<td></td>
+<td>update t set k&#x3D;k+1 where id&#x3D;1;<br>select k from t where id&#x3D;1;</td>
+<td></td>
+</tr>
+<tr>
+<td>select k from t where id&#x3D;1;<br>commit;</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td></td>
+<td>commit;</td>
+<td>commit;</td>
+</tr>
+</tbody></table>
+<p>事务 C’的不同是，更新后并没有马上提交，在它提交前，事务 B 的更新语句先发起了。前面说过了，虽然事务 C’还没提交，但是 (1,2) 这个版本也已经生成了，并且是当前的最新版本。那么，事务 B 的更新语句会怎么处理呢？</p>
+<p>这时候，“两阶段锁协议”就要上场了。事务 C’没提交，也就是说 (1,2) 这个版本上的写锁还没释放。而<strong>事务 B 是当前读，必须要读最新版本，而且必须加锁，因此就被锁住了，必须等到事务 C’释放这个锁，才能继续它的当前读。</strong></p>
+<p>读提交的逻辑和可重复读的逻辑类型，它们最主要的区别是;</p>
+<ul>
+<li>在可重复读隔离级别下，只需要再事务开始的时候创建一致性视图，之后事务里的其他查询都共用这个一致性视图</li>
+<li>在读提交隔离级别下，每一个语句执行前都会重新算出一个新的视图</li>
+</ul>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/MySQL/" rel="tag"># MySQL</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2024/10/06/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B27%E3%80%91%E8%A1%8C%E9%94%81%E5%8A%9F%E8%BF%87/" rel="prev" title="【MySQL实战45讲7】行锁功过">
+                  <i class="fa fa-angle-left"></i> 【MySQL实战45讲7】行锁功过
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2024/10/20/%E3%80%90Java%E5%B9%B6%E5%8F%91%E7%BC%96%E7%A8%8B%E7%9A%84%E8%89%BA%E6%9C%AF3%E3%80%91Java%E5%86%85%E5%AD%98%E6%A8%A1%E5%9E%8B%EF%BC%88%E4%B8%AD%EF%BC%89/" rel="next" title="【Java并发编程的艺术3】Java内存模型（中）">
+                  【Java并发编程的艺术3】Java内存模型（中） <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2024</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder">Barry Crude</span>
+  </div>
+<div class="busuanzi-count">
+    <span class="post-meta-item" id="busuanzi_container_site_uv">
+      <span class="post-meta-item-icon">
+        <i class="fa fa-user"></i>
+      </span>
+      <span class="site-uv" title="Total Visitors">
+        <span id="busuanzi_value_site_uv"></span>
+      </span>
+    </span>
+    <span class="post-meta-item" id="busuanzi_container_site_pv">
+      <span class="post-meta-item-icon">
+        <i class="fa fa-eye"></i>
+      </span>
+      <span class="site-pv" title="Total Views">
+        <span id="busuanzi_value_site_pv"></span>
+      </span>
+    </span>
+</div>
+  <div class="powered-by">Powered by <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/" rel="noopener" target="_blank">NexT.Gemini</a>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="back-to-top" role="button" aria-label="Back to top">
+    <i class="fa fa-arrow-up fa-lg"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous"></script>
+<script src="/js/comments.js"></script><script src="/js/utils.js"></script><script src="/js/motion.js"></script><script src="/js/next-boot.js"></script>
+
+  
+
+
+
+
+
+
+  
+  <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+
+
+
+
+
+</body>
+</html>

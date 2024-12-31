@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222"><meta name="generator" content="Hexo 7.1.1">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha256-wiz7ZSCn/btzhjKDQBms9Hx4sSeUYsDrTLg7roPstac=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"example.com","root":"/","images":"/images","scheme":"Gemini","darkmode":false,"version":"8.19.2","exturl":false,"sidebar":{"position":"left","display":"always","padding":18,"offset":12},"copycode":{"enable":false,"style":null},"fold":{"enable":false,"height":500},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":true,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"}}</script><script src="/js/config.js"></script>
+
+    <meta name="description" content="前言我们在写SQL语句的时候，并没有指定选择哪个索引，也就是说，使用哪个索引是MySQL来确定的。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="【MySQL实战45讲10】MySQL为什么有时候会选错索引">
+<meta property="og:url" content="http://example.com/2024/11/24/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B210%E3%80%91MySQL%E4%B8%BA%E4%BB%80%E4%B9%88%E6%9C%89%E6%97%B6%E5%80%99%E4%BC%9A%E9%80%89%E9%94%99%E7%B4%A2%E5%BC%95/index.html">
+<meta property="og:site_name" content="Crude &#39;s Blog">
+<meta property="og:description" content="前言我们在写SQL语句的时候，并没有指定选择哪个索引，也就是说，使用哪个索引是MySQL来确定的。">
+<meta property="og:locale" content="en_US">
+<meta property="og:image" content="http://example.com/2024/11/24/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B210%E3%80%91MySQL%E4%B8%BA%E4%BB%80%E4%B9%88%E6%9C%89%E6%97%B6%E5%80%99%E4%BC%9A%E9%80%89%E9%94%99%E7%B4%A2%E5%BC%95/%E4%BD%BF%E7%94%A8explain%E5%91%BD%E4%BB%A4%E6%9F%A5%E7%9C%8B%E8%AF%AD%E5%8F%A5%E6%89%A7%E8%A1%8C%E6%83%85%E5%86%B5.jpg">
+<meta property="og:image" content="http://example.com/2024/11/24/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B210%E3%80%91MySQL%E4%B8%BA%E4%BB%80%E4%B9%88%E6%9C%89%E6%97%B6%E5%80%99%E4%BC%9A%E9%80%89%E9%94%99%E7%B4%A2%E5%BC%95/slow_log%E7%BB%93%E6%9E%9C.jpg">
+<meta property="og:image" content="http://example.com/2024/11/24/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B210%E3%80%91MySQL%E4%B8%BA%E4%BB%80%E4%B9%88%E6%9C%89%E6%97%B6%E5%80%99%E4%BC%9A%E9%80%89%E9%94%99%E7%B4%A2%E5%BC%95/%E6%84%8F%E5%A4%96%E7%9A%84explain%E7%BB%93%E6%9E%9C.jpg">
+<meta property="og:image" content="http://example.com/2024/11/24/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B210%E3%80%91MySQL%E4%B8%BA%E4%BB%80%E4%B9%88%E6%9C%89%E6%97%B6%E5%80%99%E4%BC%9A%E9%80%89%E9%94%99%E7%B4%A2%E5%BC%95/%E4%BD%BF%E7%94%A8explain%E5%91%BD%E4%BB%A4%E6%9F%A5%E7%9C%8B%E8%AF%AD%E5%8F%A5%E6%89%A7%E8%A1%8C%E6%83%85%E5%86%B52.jpg">
+<meta property="article:published_time" content="2024-11-24T10:31:57.000Z">
+<meta property="article:modified_time" content="2024-11-24T12:05:56.289Z">
+<meta property="article:author" content="Barry Crude">
+<meta property="article:tag" content="MySQL">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="http://example.com/2024/11/24/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B210%E3%80%91MySQL%E4%B8%BA%E4%BB%80%E4%B9%88%E6%9C%89%E6%97%B6%E5%80%99%E4%BC%9A%E9%80%89%E9%94%99%E7%B4%A2%E5%BC%95/%E4%BD%BF%E7%94%A8explain%E5%91%BD%E4%BB%A4%E6%9F%A5%E7%9C%8B%E8%AF%AD%E5%8F%A5%E6%89%A7%E8%A1%8C%E6%83%85%E5%86%B5.jpg">
+
+
+<link rel="canonical" href="http://example.com/2024/11/24/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B210%E3%80%91MySQL%E4%B8%BA%E4%BB%80%E4%B9%88%E6%9C%89%E6%97%B6%E5%80%99%E4%BC%9A%E9%80%89%E9%94%99%E7%B4%A2%E5%BC%95/">
+
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://example.com/2024/11/24/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B210%E3%80%91MySQL%E4%B8%BA%E4%BB%80%E4%B9%88%E6%9C%89%E6%97%B6%E5%80%99%E4%BC%9A%E9%80%89%E9%94%99%E7%B4%A2%E5%BC%95/","path":"2024/11/24/【MySQL实战45讲10】MySQL为什么有时候会选错索引/","title":"【MySQL实战45讲10】MySQL为什么有时候会选错索引"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>【MySQL实战45讲10】MySQL为什么有时候会选错索引 | Crude 's Blog</title>
+  
+
+
+
+
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">Crude 's Blog</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-home"><a href="/" rel="section"><i class="home fa-fw"></i>Home</a></li><li class="menu-item menu-item-about"><a href="/about/" rel="section"><i class="user fa-fw"></i>About</a></li><li class="menu-item menu-item-tags"><a href="/tags/" rel="section"><i class="tags fa-fw"></i>Tags</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="th fa-fw"></i>Categories</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="archive fa-fw"></i>Archives</a></li><li class="menu-item menu-item-link"><a href="/links/" rel="section"><i class="fa fa-link fa-fw"></i>友链</a></li>
+  </ul>
+</nav>
+
+
+
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%89%8D%E8%A8%80"><span class="nav-number">1.</span> <span class="nav-text">前言</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%BC%98%E5%8C%96%E5%99%A8%E7%9A%84%E9%80%BB%E8%BE%91"><span class="nav-number">2.</span> <span class="nav-text">优化器的逻辑</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E7%B4%A2%E5%BC%95%E9%80%89%E6%8B%A9%E5%BC%82%E5%B8%B8%E5%92%8C%E5%A4%84%E7%90%86"><span class="nav-number">3.</span> <span class="nav-text">索引选择异常和处理</span></a></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">Barry Crude</p>
+  <div class="site-description" itemprop="description">Crude 's Blog</div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">13</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">2</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">3</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+  <div class="links-of-author animated">
+      <span class="links-of-author-item">
+        <a href="https://github.com/mewbugger" title="GitHub → https:&#x2F;&#x2F;github.com&#x2F;mewbugger" rel="noopener me" target="_blank"><i class="fab fa-github fa-fw"></i>GitHub</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="https://blog.csdn.net/RuaaaHaHa" title="CSDN → https:&#x2F;&#x2F;blog.csdn.net&#x2F;RuaaaHaHa" rel="noopener me" target="_blank"><i class="book fa-fw"></i>CSDN</a>
+      </span>
+  </div>
+
+        </div>
+      </div>
+    </div>
+
+    
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://example.com/2024/11/24/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B210%E3%80%91MySQL%E4%B8%BA%E4%BB%80%E4%B9%88%E6%9C%89%E6%97%B6%E5%80%99%E4%BC%9A%E9%80%89%E9%94%99%E7%B4%A2%E5%BC%95/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="Barry Crude">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Crude 's Blog">
+      <meta itemprop="description" content="Crude 's Blog">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="【MySQL实战45讲10】MySQL为什么有时候会选错索引 | Crude 's Blog">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          【MySQL实战45讲10】MySQL为什么有时候会选错索引
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+      
+
+      <time title="Created: 2024-11-24 18:31:57 / Modified: 20:05:56" itemprop="dateCreated datePublished" datetime="2024-11-24T18:31:57+08:00">2024-11-24</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E5%AD%A6%E4%B9%A0/" itemprop="url" rel="index"><span itemprop="name">学习</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-item" title="Views" id="busuanzi_container_page_pv">
+      <span class="post-meta-item-icon">
+        <i class="far fa-eye"></i>
+      </span>
+      <span class="post-meta-item-text">Views: </span>
+      <span id="busuanzi_value_page_pv"></span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h2 id="前言"><a href="#前言" class="headerlink" title="前言"></a>前言</h2><p>我们在写SQL语句的时候，并没有指定选择哪个索引，也就是说，使用哪个索引是MySQL来确定的。</p>
+<span id="more"></span>
+
+<p>我们可能会遇到一些情况，一条本来可以执行得很快的语句，却由于MySQL选错了索引，而导致执行速度变得很慢。</p>
+<p>看看下面这个例子，先建立一个简单的表，表里有a、b两个字段，并分别建上索引:</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">CREATE</span> <span class="keyword">TABLE</span> `t` (</span><br><span class="line">  `id` <span class="type">int</span>(<span class="number">11</span>) <span class="keyword">NOT</span> <span class="keyword">NULL</span> AUTO_INCREMENT,</span><br><span class="line">  `a` <span class="type">int</span>(<span class="number">11</span>) <span class="keyword">DEFAULT</span> <span class="keyword">NULL</span>,</span><br><span class="line">  `b` <span class="type">int</span>(<span class="number">11</span>) <span class="keyword">DEFAULT</span> <span class="keyword">NULL</span>,</span><br><span class="line">  <span class="keyword">PRIMARY</span> KEY (`id`),</span><br><span class="line">  KEY `a` (`a`),</span><br><span class="line">  KEY `b` (`b`)</span><br><span class="line">) ENGINE<span class="operator">=</span>InnoDB;</span><br></pre></td></tr></table></figure>
+
+<p>然后，往表t中插入10万行记录，取值按整数递增，即(1, 1, 1),(2, 2, 2),(3, 3, 3)直到(100000, 100000, 100000)。</p>
+<p>用存储过程来插入数据，如下：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">delimiter ;;</span><br><span class="line"><span class="keyword">create</span> <span class="keyword">procedure</span> idata()</span><br><span class="line"><span class="keyword">begin</span></span><br><span class="line">  <span class="keyword">declare</span> i <span class="type">int</span>;</span><br><span class="line">  <span class="keyword">set</span> i<span class="operator">=</span><span class="number">1</span>;</span><br><span class="line">  while(i<span class="operator">&lt;=</span><span class="number">100000</span>)do</span><br><span class="line">    <span class="keyword">insert</span> <span class="keyword">into</span> t <span class="keyword">values</span>(i, i, i);</span><br><span class="line">    <span class="keyword">set</span> i<span class="operator">=</span>i<span class="operator">+</span><span class="number">1</span>;</span><br><span class="line">  <span class="keyword">end</span> while;</span><br><span class="line"><span class="keyword">end</span>;;</span><br><span class="line">delimiter ;</span><br><span class="line"><span class="keyword">call</span> idata();</span><br></pre></td></tr></table></figure>
+
+<p>接下来，分析这条SQL语句：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">mysql<span class="operator">&gt;</span> <span class="keyword">select</span> <span class="operator">*</span> <span class="keyword">from</span> t <span class="keyword">where</span> a <span class="keyword">between</span> <span class="number">10000</span> <span class="keyword">and</span> <span class="number">20000</span>;</span><br></pre></td></tr></table></figure>
+
+<p>意料之内的，通过explain命令查看这条语句的执行情况可以看到，使用的是索引a。</p>
+<p><img src="/2024/11/24/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B210%E3%80%91MySQL%E4%B8%BA%E4%BB%80%E4%B9%88%E6%9C%89%E6%97%B6%E5%80%99%E4%BC%9A%E9%80%89%E9%94%99%E7%B4%A2%E5%BC%95/%E4%BD%BF%E7%94%A8explain%E5%91%BD%E4%BB%A4%E6%9F%A5%E7%9C%8B%E8%AF%AD%E5%8F%A5%E6%89%A7%E8%A1%8C%E6%83%85%E5%86%B5.jpg" alt="使用explain命令查看语句执行情况"></p>
+<p>但是，换一种方式，在已经准备好的包含了10万行数据的表上，再做如下操作。</p>
+<table>
+<thead>
+<tr>
+<th>Session A</th>
+<th>Session B</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>start transaction with consistent snapshot;</td>
+<td></td>
+</tr>
+<tr>
+<td></td>
+<td>delete from t;</td>
+</tr>
+<tr>
+<td></td>
+<td>call idata();</td>
+</tr>
+<tr>
+<td></td>
+<td>explain select * from t where a between 10000 and 20000;</td>
+</tr>
+<tr>
+<td>commit;</td>
+<td></td>
+</tr>
+</tbody></table>
+<p>sessionA就是开启了一个事务。随后，session B把数据都删除后，又调用了idata这个存储过程，插入了10万行数据。</p>
+<p>这时候，sessionB的查询语句<code>select * from t where a between 10000 and 20000</code>就不会再选择索引a了，可以通过慢查询日志（slow log）来查看一下具体的执行情况。</p>
+<p>为了说明优化器选择的结果是否正确，我增加了一个对照，即：使用 force index(a) 来让优化器强制使用索引 a</p>
+<p>下面的三条SQL语句，就是这个实验过程。</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">set</span> long_query_time<span class="operator">=</span><span class="number">0</span>;</span><br><span class="line"><span class="keyword">select</span> <span class="operator">*</span> <span class="keyword">from</span> t <span class="keyword">where</span> a <span class="keyword">between</span> <span class="number">10000</span> <span class="keyword">and</span> <span class="number">20000</span>; <span class="comment">/*Q1*/</span></span><br><span class="line"><span class="keyword">select</span> <span class="operator">*</span> <span class="keyword">from</span> t force index(a) <span class="keyword">where</span> a <span class="keyword">between</span> <span class="number">10000</span> <span class="keyword">and</span> <span class="number">20000</span>;<span class="comment">/*Q2*/</span></span><br></pre></td></tr></table></figure>
+
+<ul>
+<li>第一句，是将慢查询日志的阈值设置为 0，表示这个线程接下来的语句都会被记录入慢查询日志中；</li>
+<li>第二句，Q1 是 session B 原来的查询；</li>
+<li>第三句，Q2 是加了 force index(a) 来和 session B 原来的查询语句执行情况对比。</li>
+</ul>
+<p>下图就是slow log的结果</p>
+<p><img src="/2024/11/24/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B210%E3%80%91MySQL%E4%B8%BA%E4%BB%80%E4%B9%88%E6%9C%89%E6%97%B6%E5%80%99%E4%BC%9A%E9%80%89%E9%94%99%E7%B4%A2%E5%BC%95/slow_log%E7%BB%93%E6%9E%9C.jpg" alt="slow log结果"></p>
+<p>可以看到，Q1扫描了10万行，说明了全表扫描，执行时间是40毫秒。Q2扫描了10001行，执行了21毫秒，也就是说在没有使用force index的时候，MySQL用错了索引，导致了更长的执行时间。</p>
+<h2 id="优化器的逻辑"><a href="#优化器的逻辑" class="headerlink" title="优化器的逻辑"></a>优化器的逻辑</h2><p>优化器选择索引的目的，是找到一个最优的执行方案，并用最小的代价去执行语句。在数据库里面，扫描行数是影响执行代价的因素之一。扫描的行数越少，意味着访问磁盘数据的次数越少，消耗的CPU资源越少。</p>
+<p>当然，扫描行数并不是唯一的判断标准，优化器还会结合是否使用临时表、是否排序等因素进行综合判断。</p>
+<p>这个简单的查询语句并没有涉及到临时表和排序，所以 MySQL 选错索引肯定是在判断扫描行数的时候出问题了。</p>
+<p>那么，问题就是：<strong>扫描行数是怎么判断的</strong>？</p>
+<p>MySQL 在真正开始执行语句之前，并不能精确地知道满足这个条件的记录有多少条，而只能根据统计信息来估算记录数。</p>
+<p>这个统计信息就是索引的“区分度”。显然，一个索引上不同的值越多，这个索引的区分度就越好。而一个索引上不同的值的个数，我们称之为<strong>“基数”（cardinality）</strong>。也就是说，这个基数越大，索引的区分度越好。</p>
+<p>MySQL是通过采样统计来得到索引的基数的，虽然把整张表一行行统计，可以得到精确的结果，但是代价太高了，索引选择了采样统计。</p>
+<p>采样统计的时候，InnoDB 默认会选择 N 个数据页，统计这些页面上的不同值，得到一个平均值，然后乘以这个索引的页面数，就得到了这个索引的基数。</p>
+<p>而数据表是会持续更新的，索引统计信息也不会固定不变。所以，当变更的数据行数超过 1&#x2F;M 的时候，会自动触发重新做一次索引统计。</p>
+<p>了解了MySQL是如何得到基数之后，再来看看优化器评估的，这两个语句的扫描行数是多少。</p>
+<p><img src="/2024/11/24/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B210%E3%80%91MySQL%E4%B8%BA%E4%BB%80%E4%B9%88%E6%9C%89%E6%97%B6%E5%80%99%E4%BC%9A%E9%80%89%E9%94%99%E7%B4%A2%E5%BC%95/%E6%84%8F%E5%A4%96%E7%9A%84explain%E7%BB%93%E6%9E%9C.jpg" alt="意外的explain结果"></p>
+<p>其中，Q1 的结果还是符合预期的，rows 的值是 104620；但是 Q2 的 rows 值是 37116，偏差就大了。而之前用 explain 命令看到的 rows 是只有 10001 行，是这个偏差误导了优化器的判断。</p>
+<p>到这里，可能疑问不是为什么不准，而是优化器为什么放着扫描 37000 行的执行计划不用，却选择了扫描行数是 100000 的执行计划呢？</p>
+<p>这是因为，如果使用索引 a，每次从索引 a 上拿到一个值，都要回到主键索引上查出整行数据，这个代价优化器也要算进去的。</p>
+<p>而如果选择扫描 10 万行，是直接在主键索引上扫描的，没有额外的代价。</p>
+<p>优化器会估算这两个选择的代价，从结果看来，优化器认为直接扫描主键索引更快。当然，从执行时间看来，这个选择并不是最优的。</p>
+<p><code>analyze table t</code> 命令，可以用来重新统计索引信息，修正统计信息，这之后rows就变为了10001行了。</p>
+<p>如果只是索引统计不准确，通过analyze命令可以解决很多问题，但是优化器不止是看扫描行数。</p>
+<p>依然是基于这个表t，看看另外一个语句;</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">mysql<span class="operator">&gt;</span> <span class="keyword">select</span> <span class="operator">*</span> <span class="keyword">from</span> t <span class="keyword">where</span> (a <span class="keyword">between</span> <span class="number">1</span> <span class="keyword">and</span> <span class="number">1000</span>)  <span class="keyword">and</span> (b <span class="keyword">between</span> <span class="number">50000</span> <span class="keyword">and</span> <span class="number">100000</span>) <span class="keyword">order</span> <span class="keyword">by</span> b limit <span class="number">1</span>;</span><br></pre></td></tr></table></figure>
+
+<p>在开始执行这条语句之前，先设想一下，如果我们自己来选择索引，会选择哪一个？</p>
+<p>如果使用索引 a 进行查询，那么就是扫描索引 a 的前 1000 个值，然后取到对应的 id，再到主键索引上去查出每一行，然后根据字段 b 来过滤。显然这样需要扫描 1000 行。</p>
+<p>如果使用索引 b 进行查询，那么就是扫描索引 b 的最后 50001 个值，与上面的执行过程相同，也是需要回到主键索引上取值再判断，所以需要扫描 50001 行。</p>
+<p>显然，如果使用索引a，执行速度明显会快很多，下面看看到底是不是这样的。</p>
+<p>执行explain命令</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">mysql<span class="operator">&gt;</span> explain <span class="keyword">select</span> <span class="operator">*</span> <span class="keyword">from</span> t <span class="keyword">where</span> (a <span class="keyword">between</span> <span class="number">1</span> <span class="keyword">and</span> <span class="number">1000</span>) <span class="keyword">and</span> (b <span class="keyword">between</span> <span class="number">50000</span> <span class="keyword">and</span> <span class="number">100000</span>) <span class="keyword">order</span> <span class="keyword">by</span> b limit <span class="number">1</span>;</span><br></pre></td></tr></table></figure>
+
+<p><img src="/2024/11/24/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B210%E3%80%91MySQL%E4%B8%BA%E4%BB%80%E4%B9%88%E6%9C%89%E6%97%B6%E5%80%99%E4%BC%9A%E9%80%89%E9%94%99%E7%B4%A2%E5%BC%95/%E4%BD%BF%E7%94%A8explain%E5%91%BD%E4%BB%A4%E6%9F%A5%E7%9C%8B%E8%AF%AD%E5%8F%A5%E6%89%A7%E8%A1%8C%E6%83%85%E5%86%B52.jpg" alt="使用explain命令查看语句执行情况2"></p>
+<p>可以看到，返回结果中 key 字段显示，这次优化器选择了索引 b，而 rows 字段显示需要扫描的行数是 50198。</p>
+<p>从这个结果中，你可以得到两个结论：</p>
+<ol>
+<li>扫描行数的估计值依然不准确；</li>
+<li>这个例子里 MySQL 又选错了索引。</li>
+</ol>
+<h2 id="索引选择异常和处理"><a href="#索引选择异常和处理" class="headerlink" title="索引选择异常和处理"></a>索引选择异常和处理</h2><p><strong>一种方法是，像我们第一个例子一样，采用 force index 强行选择一个索引。</strong></p>
+<p><strong>第二种方法就是，我们可以考虑修改语句，引导 MySQL 使用我们期望的索引。</strong></p>
+<p>在这个例子里，显然把“<code>order by b limit 1</code>” 改成 “<code>order by b,a limit 1</code>” ，语义的逻辑是相同的。</p>
+<p><strong>第三种方法是，在有些场景下，我们可以新建一个更合适的索引，来提供给优化器做选择，或删掉误用的索引。</strong></p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/MySQL/" rel="tag"># MySQL</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2024/10/24/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B29%E3%80%91%E6%99%AE%E9%80%9A%E7%B4%A2%E5%BC%95%E5%92%8C%E5%94%AF%E4%B8%80%E7%B4%A2%E5%BC%95%E6%80%8E%E4%B9%88%E9%80%89%E6%8B%A9/" rel="prev" title="【MySQL实战45讲9】普通索引和唯一索引怎么选择">
+                  <i class="fa fa-angle-left"></i> 【MySQL实战45讲9】普通索引和唯一索引怎么选择
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2024/11/25/%E3%80%90Java%E5%B9%B6%E5%8F%91%E7%BC%96%E7%A8%8B%E7%9A%84%E8%89%BA%E6%9C%AF3%E3%80%91Java%E5%86%85%E5%AD%98%E6%A8%A1%E5%9E%8B%EF%BC%88%E4%B8%8B%EF%BC%89/" rel="next" title="【Java并发编程的艺术3】Java内存模型（下）">
+                  【Java并发编程的艺术3】Java内存模型（下） <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2024</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder">Barry Crude</span>
+  </div>
+<div class="busuanzi-count">
+    <span class="post-meta-item" id="busuanzi_container_site_uv">
+      <span class="post-meta-item-icon">
+        <i class="fa fa-user"></i>
+      </span>
+      <span class="site-uv" title="Total Visitors">
+        <span id="busuanzi_value_site_uv"></span>
+      </span>
+    </span>
+    <span class="post-meta-item" id="busuanzi_container_site_pv">
+      <span class="post-meta-item-icon">
+        <i class="fa fa-eye"></i>
+      </span>
+      <span class="site-pv" title="Total Views">
+        <span id="busuanzi_value_site_pv"></span>
+      </span>
+    </span>
+</div>
+  <div class="powered-by">Powered by <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/" rel="noopener" target="_blank">NexT.Gemini</a>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="back-to-top" role="button" aria-label="Back to top">
+    <i class="fa fa-arrow-up fa-lg"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous"></script>
+<script src="/js/comments.js"></script><script src="/js/utils.js"></script><script src="/js/motion.js"></script><script src="/js/next-boot.js"></script>
+
+  
+
+
+
+
+
+
+  
+  <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+
+
+
+
+
+</body>
+</html>
