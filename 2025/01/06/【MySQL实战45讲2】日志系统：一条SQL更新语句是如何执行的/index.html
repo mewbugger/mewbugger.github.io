@@ -30,7 +30,7 @@
 <meta property="og:image" content="http://example.com/2025/01/06/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B22%E3%80%91%E6%97%A5%E5%BF%97%E7%B3%BB%E7%BB%9F%EF%BC%9A%E4%B8%80%E6%9D%A1SQL%E6%9B%B4%E6%96%B0%E8%AF%AD%E5%8F%A5%E6%98%AF%E5%A6%82%E4%BD%95%E6%89%A7%E8%A1%8C%E7%9A%84/redolog%E7%A4%BA%E6%84%8F%E5%9B%BE.jpg">
 <meta property="og:image" content="http://example.com/2025/01/06/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B22%E3%80%91%E6%97%A5%E5%BF%97%E7%B3%BB%E7%BB%9F%EF%BC%9A%E4%B8%80%E6%9D%A1SQL%E6%9B%B4%E6%96%B0%E8%AF%AD%E5%8F%A5%E6%98%AF%E5%A6%82%E4%BD%95%E6%89%A7%E8%A1%8C%E7%9A%84/update%E8%AF%AD%E5%8F%A5%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B.jpg">
 <meta property="article:published_time" content="2025-01-06T15:08:52.000Z">
-<meta property="article:modified_time" content="2025-01-06T16:26:58.700Z">
+<meta property="article:modified_time" content="2025-04-20T04:19:38.940Z">
 <meta property="article:author" content="Barry Crude">
 <meta property="article:tag" content="MySQL">
 <meta name="twitter:card" content="summary">
@@ -116,7 +116,7 @@
       <div class="sidebar-panel-container">
         <!--noindex-->
         <div class="post-toc-wrap sidebar-panel">
-            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%89%8D%E8%A8%80"><span class="nav-number">1.</span> <span class="nav-text">前言</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E9%87%8D%E8%A6%81%E7%9A%84%E6%97%A5%E5%BF%97%E6%A8%A1%E5%9D%97%EF%BC%9Aredo-log"><span class="nav-number">1.1.</span> <span class="nav-text">重要的日志模块：redo log</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E9%87%8D%E8%A6%81%E7%9A%84%E6%97%A5%E5%BF%97%E6%A8%A1%E5%9D%97%EF%BC%9Abinlog"><span class="nav-number">1.2.</span> <span class="nav-text">重要的日志模块：binlog</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E4%B8%A4%E9%98%B6%E6%AE%B5%E6%8F%90%E4%BA%A4"><span class="nav-number">1.3.</span> <span class="nav-text">两阶段提交</span></a></li></ol></li></ol></div>
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%89%8D%E8%A8%80"><span class="nav-number">1.</span> <span class="nav-text">前言</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#SQL%E8%AF%AD%E5%8F%A5%E7%9A%84%E6%89%A7%E8%A1%8C%E9%93%BE%E8%B7%AF"><span class="nav-number">2.</span> <span class="nav-text">SQL语句的执行链路</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%87%8D%E8%A6%81%E7%9A%84%E6%97%A5%E5%BF%97%E6%A8%A1%E5%9D%97%EF%BC%9Aredo-log"><span class="nav-number">3.</span> <span class="nav-text">重要的日志模块：redo log</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%87%8D%E8%A6%81%E7%9A%84%E6%97%A5%E5%BF%97%E6%A8%A1%E5%9D%97%EF%BC%9Abinlog"><span class="nav-number">4.</span> <span class="nav-text">重要的日志模块：binlog</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%B8%A4%E9%98%B6%E6%AE%B5%E6%8F%90%E4%BA%A4"><span class="nav-number">5.</span> <span class="nav-text">两阶段提交</span></a></li></ol></div>
         </div>
         <!--/noindex-->
 
@@ -211,7 +211,7 @@
         <i class="far fa-calendar-check"></i>
       </span>
       <span class="post-meta-item-text">Edited on</span>
-      <time title="Modified: 2025-01-07 00:26:58" itemprop="dateModified" datetime="2025-01-07T00:26:58+08:00">2025-01-07</time>
+      <time title="Modified: 2025-04-20 12:19:38" itemprop="dateModified" datetime="2025-04-20T12:19:38+08:00">2025-04-20</time>
     </span>
     <span class="post-meta-item">
       <span class="post-meta-item-icon">
@@ -242,13 +242,13 @@
     <div class="post-body" itemprop="articleBody"><h2 id="前言"><a href="#前言" class="headerlink" title="前言"></a>前言</h2><p>在数据库中，查询语句的执行流程通常包括连接器、分析器、优化器、执行器等模块，最终到达存储引擎。然而，当我们谈论更新语句的执行流程时，情况会有所不同。更新操作不仅涉及数据的读取，还包括数据的修改和写入，这一过程更为复杂。本文将探讨更新语句的执行流程，并揭示MySQL实现数据恢复的奥秘。通过了解这些底层原理，我们不仅能更好地理解数据库的工作机制，还能在实际应用中更加得心应手。</p>
 <span id="more"></span>
 
-<p>首先，查询语句会走的流程，更新语句也同样会走一遍，所以先回顾一下SQL语句基本的执行链路。</p>
+<h2 id="SQL语句的执行链路"><a href="#SQL语句的执行链路" class="headerlink" title="SQL语句的执行链路"></a>SQL语句的执行链路</h2><p>首先，查询语句会走的流程，更新语句也同样会走一遍，所以先回顾一下SQL语句基本的执行链路。</p>
 <p><img src="/2025/01/06/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B22%E3%80%91%E6%97%A5%E5%BF%97%E7%B3%BB%E7%BB%9F%EF%BC%9A%E4%B8%80%E6%9D%A1SQL%E6%9B%B4%E6%96%B0%E8%AF%AD%E5%8F%A5%E6%98%AF%E5%A6%82%E4%BD%95%E6%89%A7%E8%A1%8C%E7%9A%84/MySQL%E9%80%BB%E8%BE%91%E6%9E%B6%E6%9E%84%E5%9B%BE.jpg" alt="MySQL逻辑架构图"></p>
 <p>执行语句要先连接数据库，这是连接器的工作。</p>
 <p>在一个表上有更新的时候，跟这个表有关的查询缓存会失效，所以这条更新语句会把更新的表上所有缓存结果都清空，所以一般不建议使用查询缓存。</p>
 <p>分析器会通过词法和语法解析知道这是一条更新语句。优化器决定要使用ID这个索引。然后，执行器负责具体执行，找到这一行，然后更新。</p>
 <p>与查询流程不一样的是，更新流程还涉及两个重要的日志模块：<code>redo log</code>（重做日志）和<code>binlog</code>（归档日志）。</p>
-<h3 id="重要的日志模块：redo-log"><a href="#重要的日志模块：redo-log" class="headerlink" title="重要的日志模块：redo log"></a>重要的日志模块：redo log</h3><p>《孔乙己》这篇文章中，酒店掌柜有一个粉板，专门用来记录客人的赊账记录。如果赊账的人不多，那么他可以把顾客名和账目写在板上。但如果赊账的人多了，粉板总会有记不下的时候，这个时候掌柜一定还有一个专门记录赊账的账本。</p>
+<h2 id="重要的日志模块：redo-log"><a href="#重要的日志模块：redo-log" class="headerlink" title="重要的日志模块：redo log"></a>重要的日志模块：redo log</h2><p>《孔乙己》这篇文章中，酒店掌柜有一个粉板，专门用来记录客人的赊账记录。如果赊账的人不多，那么他可以把顾客名和账目写在板上。但如果赊账的人多了，粉板总会有记不下的时候，这个时候掌柜一定还有一个专门记录赊账的账本。</p>
 <p>如果有人要赊账或者还账，掌柜一般有两种做法;</p>
 <ul>
 <li>直接把账本翻出来，把这次赊的账加上去或者扣除掉</li>
@@ -263,7 +263,7 @@
 <p><code>write pos</code> 是当前记录的位置，一边写一边后移，写到第 3 号文件末尾后就回到 0 号文件开头。<code>checkpoint</code> 是当前要擦除的位置，也是往后推移并且循环的，擦除记录前要把记录更新到数据文件。</p>
 <p><code>write pos</code> 和 <code>checkpoint</code> 之间的是“粉板”上还空着的部分，可以用来记录新的操作。如果 <code>write pos</code> 追上 <code>checkpoint</code>，表示“粉板”满了，这时候不能再执行新的更新，得停下来先擦掉一些记录，把 <code>checkpoint</code> 推进一下。</p>
 <p>有了 redo log，InnoDB 就可以保证即使数据库发生异常重启，之前提交的记录都不会丢失，这个能力称为 **<code>crash-safe</code>**。</p>
-<h3 id="重要的日志模块：binlog"><a href="#重要的日志模块：binlog" class="headerlink" title="重要的日志模块：binlog"></a>重要的日志模块：binlog</h3><p>MySQL 整体来看，其实就有两块：一块是 Server 层，它主要做的是 MySQL 功能层面的事情；还有一块是引擎层，负责存储相关的具体事宜。上面我们聊到的粉板 redo log 是 InnoDB 引擎特有的日志，而 Server 层也有自己的日志，称为 binlog（归档日志）。</p>
+<h2 id="重要的日志模块：binlog"><a href="#重要的日志模块：binlog" class="headerlink" title="重要的日志模块：binlog"></a>重要的日志模块：binlog</h2><p>MySQL 整体来看，其实就有两块：一块是 Server 层，它主要做的是 MySQL 功能层面的事情；还有一块是引擎层，负责存储相关的具体事宜。上面我们聊到的粉板 redo log 是 InnoDB 引擎特有的日志，而 Server 层也有自己的日志，称为 binlog（归档日志）。</p>
 <p>redo log和binlog有以下<strong>三点不同</strong>：</p>
 <ol>
 <li>redo log 是 InnoDB 引擎特有的；binlog 是 MySQL 的 Server 层实现的，所有引擎都可以使用。</li>
@@ -275,7 +275,7 @@
 
 <p>给出这个 update 语句的执行流程图，图中黄色框表示是在 InnoDB 内部执行的，绿色框表示是在执行器中执行的。</p>
 <p><img src="/2025/01/06/%E3%80%90MySQL%E5%AE%9E%E6%88%9845%E8%AE%B22%E3%80%91%E6%97%A5%E5%BF%97%E7%B3%BB%E7%BB%9F%EF%BC%9A%E4%B8%80%E6%9D%A1SQL%E6%9B%B4%E6%96%B0%E8%AF%AD%E5%8F%A5%E6%98%AF%E5%A6%82%E4%BD%95%E6%89%A7%E8%A1%8C%E7%9A%84/update%E8%AF%AD%E5%8F%A5%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B.jpg" alt="update语句执行流程"></p>
-<h3 id="两阶段提交"><a href="#两阶段提交" class="headerlink" title="两阶段提交"></a>两阶段提交</h3><p>为什么日志需要“两阶段提交”。这里不妨用反证法来进行解释。</p>
+<h2 id="两阶段提交"><a href="#两阶段提交" class="headerlink" title="两阶段提交"></a>两阶段提交</h2><p>为什么日志需要“两阶段提交”。这里不妨用反证法来进行解释。</p>
 <p>仍然用前面的 update 语句来做例子。假设当前 ID&#x3D;2 的行，字段 c 的值是 0，再假设执行 update 语句过程中在写完第一个日志后，第二个日志还没有写完期间发生了 crash，会出现什么情况呢？</p>
 <ol>
 <li><p><strong>先写 redo log 后写 binlog</strong>。假设在 redo log 写完，binlog 还没有写完的时候，MySQL 进程异常重启。由于我们前面说过的，redo log 写完之后，系统即使崩溃，仍然能够把数据恢复回来，所以恢复后这一行 c 的值是 1。但是由于 binlog 没写完就 crash 了，这时候 binlog 里面就没有记录这个语句。因此，之后备份日志的时候，存起来的 binlog 里面就没有这条语句。然后你会发现，如果需要用这个 binlog 来恢复临时库的话，由于这个语句的 binlog 丢失，这个临时库就会少了这一次更新，恢复出来的这一行 c 的值就是 0，与原库的值不同。</p>
